@@ -65,6 +65,14 @@ jobs:
             sudo chown -R \$SERVER_USER:\$SERVER_USER /home/\$SERVER_USER/server_monitoring_bot
             sudo chmod -R u+rwX /home/\$SERVER_USER/server_monitoring_bot
 
+            # Проверка requirements.txt
+            echo "Checking requirements.txt"
+            if [ ! -f requirements.txt ]; then
+              echo "requirements.txt not found"; exit 1;
+            fi
+            echo "requirements.txt contents:"
+            cat requirements.txt
+
             # Настроить виртуальное окружение
             echo "Setting up virtual environment"
             python3 -m venv venv
@@ -82,15 +90,20 @@ jobs:
             echo "DB_NAME=server_monitoring" >> .env
             echo "DB_USER=monitor_user" >> .env
             echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
-            echo "ADMIN_IDS=${{ secrets.ADMIN_IDS }}" > .env
+            echo "ADMIN_IDS=${{ secrets.ADMIN_IDS }}" >> .env
             chmod 600 .env
 
             # Инициализация базы данных
             echo "Initializing database"
             if [ ! -f "/home/\$SERVER_USER/server_monitoring_bot/.db_initialized" ]; then
-              psql -U monitor_user -d server_monitoring -f database/schema.sql || {
+              if [ ! -f "database/schema.sql" ]; then
+                echo "database/schema.sql not found"; exit 1;
+              fi
+              export PGPASSWORD="${{ secrets.DB_PASSWORD }}"
+              psql -U monitor_user -d server_monitoring -h localhost -p 5432 -f database/schema.sql || {
                 echo "Failed to initialize database"; exit 1;
               }
+              unset PGPASSWORD
               touch /home/\$SERVER_USER/server_monitoring_bot/.db_initialized
             fi
 
