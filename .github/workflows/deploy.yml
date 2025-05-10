@@ -45,25 +45,25 @@ jobs:
               echo "SERVER_USER is empty in SSH session"; exit 1;
             fi
             # Проверка домашней директории
-            if [ ! -d "/home/\$SERVER_USER" ]; then
-              echo "Home directory /home/\$SERVER_USER does not exist"; exit 1;
+            if [ ! -d "/home\$SERVER_USER" ]; then
+              echo "Home directory /home\$SERVER_USER does not exist"; exit 1;
             fi
             # Проверка существования директории проекта
-            if [ -d "/home/\$SERVER_USER/server_monitoring_bot" ]; then
-              echo "Directory /home/\$SERVER_USER/server_monitoring_bot exists, updating repository"
-              cd /home/\$SERVER_USER/server_monitoring_bot
+            if [ -d "/home\$SERVER_USER/server_monitoring_bot" ]; then
+              echo "Directory /home\$SERVER_USER/server_monitoring_bot exists, updating repository"
+              cd /home\$SERVER_USER/server_monitoring_bot
               git fetch origin
               git reset --hard origin/main
             else
-              echo "Cloning repository to /home/\$SERVER_USER/server_monitoring_bot"
-              git clone https://github.com/flake92/server_monitoring_bot.git /home/\$SERVER_USER/server_monitoring_bot || {
+              echo "Cloning repository to /home\$SERVER_USER/server_monitoring_bot"
+              git clone https://github.com/flake92/server_monitoring_bot.git /home\$SERVER_USER/server_monitoring_bot || {
                 echo "Failed to clone repository"; exit 1;
               }
-              cd /home/\$SERVER_USER/server_monitoring_bot
+              cd /home\$SERVER_USER/server_monitoring_bot
             fi
             # Исправление прав только для директории проекта
-            sudo chown -R \$SERVER_USER:\$SERVER_USER /home/\$SERVER_USER/server_monitoring_bot
-            sudo chmod -R u+rwX /home/\$SERVER_USER/server_monitoring_bot
+            sudo chown -R \$SERVER_USER:\$SERVER_USER /home\$SERVER_USER/server_monitoring_bot
+            sudo chmod -R u+rwX /home\$SERVER_USER/server_monitoring_bot
 
             # Проверка requirements.txt
             echo "Checking requirements.txt"
@@ -81,6 +81,8 @@ jobs:
             pip install -r requirements.txt || {
               echo "Failed to install requirements"; exit 1;
             }
+            echo "Checking aiogram version"
+            pip show aiogram
 
             # Создать .env файл
             echo "Creating .env file"
@@ -89,13 +91,13 @@ jobs:
             echo "DB_PORT=5432" >> .env
             echo "DB_NAME=server_monitoring" >> .env
             echo "DB_USER=monitor_user" >> .env
-            echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
-            echo "ADMIN_IDS=${{ secrets.ADMIN_IDS }}" >> .env
+            echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" > .env
+            echo "ADMIN_IDS=${{ secrets.ADMIN_IDS }}" > .env
             chmod 600 .env
 
             # Инициализация базы данных
             echo "Initializing database"
-            if [ ! -f "/home/\$SERVER_USER/server_monitoring_bot/.db_initialized" ]; then
+            if [ ! -f "/home\$SERVER_USER/server_monitoring_bot/.db_initialized" ]; then
               if [ ! -f "database/schema.sql" ]; then
                 echo "database/schema.sql not found"; exit 1;
               fi
@@ -104,20 +106,24 @@ jobs:
                 echo "Failed to initialize database"; exit 1;
               }
               unset PGPASSWORD
-              touch /home/\$SERVER_USER/server_monitoring_bot/.db_initialized
+              touch /home\$SERVER_USER/server_monitoring_bot/.db_initialized
             fi
 
             # Проверка синтаксиса Python
             echo "Checking Python syntax"
-            python3 -m py_compile main.py || {
-              echo "Syntax error in main.py or its dependencies"; exit 1;
-            }
-            python3 -m py_compile database/db_manager.py || {
-              echo "Syntax error in db_manager.py"; exit 1;
-            }
+            for file in *.py database/*.py handlers/*.py; do
+              if [ -f "\$file" ]; then
+                echo "Checking \$file"
+                python3 -m py_compile "\$file" || {
+                  echo "Syntax error in \$file"; exit 1;
+                }
+              fi
+            done
 
             # Перезапустить сервис
             echo "Restarting telegram-bot service"
             sudo systemctl restart telegram-bot
             sudo systemctl status telegram-bot
+            echo "Checking bot logs"
+            tail -n 50 bot.log || echo "bot.log not found"
           EOF

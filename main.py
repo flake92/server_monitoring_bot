@@ -1,40 +1,36 @@
-import asyncio
-from aiogram import Bot, Dispatcher
-from config.config import Config
-from database.db_manager import DBManager
-from utils.logger import setup_logger
-from handlers import user_handlers, admin_handlers, monitoring_handlers
 import logging
+from aiogram import Bot, Dispatcher, executor
+from dotenv import load_dotenv
+import os
+from handlers import user_handlers, admin_handlers, monitoring_handlers
 
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('bot.log'),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
-async def main():
-    """Основная функция программы."""
-    setup_logger()
-    
+# Загрузка .env
+load_dotenv()
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+
+# Инициализация бота
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(bot)
+
+# Регистрация обработчиков
+user_handlers.register_handlers(dp)
+admin_handlers.register_handlers(dp)
+monitoring_handlers.register_handlers(dp)
+
+if __name__ == '__main__':
+    logger.info("Starting bot")
     try:
-        Config.validate()
-        logger.info("Конфигурация проверена")
-
-        db = DBManager()
-        bot = Bot(token=Config.BOT_TOKEN)
-        dp = Dispatcher()
-
-        dp.include_router(user_handlers.router)
-        dp.include_router(admin_handlers.router)
-
-        dp["db"] = db
-
-        asyncio.create_task(monitoring_handlers.monitor_servers(db, bot))
-
-        await dp.start_polling(bot)
+        executor.start_polling(dp, skip_updates=True)
     except Exception as e:
-        logger.error(f"Критическая ошибка: {str(e)}")
-    finally:
-        db.close()
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Программа остановлена пользователем")
+        logger.error(f"Bot failed to start: {e}")
