@@ -33,22 +33,36 @@ jobs:
           SERVER_IP: ${{ secrets.SERVER_IP }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
+          echo "Attempting SSH connection to $SERVER_USER@$SERVER_IP"
           ssh -i ~/.ssh/id_ed25519 -p 46928 -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP << 'EOF'
             set -e
             echo "Deploying as user: $SERVER_USER"
-            # Перейти в директорию проекта или клонировать
-            if [ ! -d "/home/$SERVER_USER/server_monitoring_bot" ]; then
+            echo "Home directory: $HOME"
+            # Проверка и настройка прав на домашнюю директорию
+            if [ ! -d "/home/$SERVER_USER" ]; then
+              echo "Home directory /home/$SERVER_USER does not exist"; exit 1;
+            fi
+            sudo chown $SERVER_USER:$SERVER_USER /home/$SERVER_USER
+            sudo chmod 700 /home/$SERVER_USER
+            # Проверка существования директории проекта
+            if [ -d "/home/$SERVER_USER/server_monitoring_bot" ]; then
+              echo "Directory /home/$SERVER_USER/server_monitoring_bot exists, updating repository"
+              cd /home/$SERVER_USER/server_monitoring_bot
+              git fetch origin
+              git reset --hard origin/main
+            else
+              echo "Cloning repository to /home/$SERVER_USER/server_monitoring_bot"
               git clone https://github.com/flake92/server_monitoring_bot.git /home/$SERVER_USER/server_monitoring_bot || {
                 echo "Failed to clone repository"; exit 1;
               }
+              cd /home/$SERVER_USER/server_monitoring_bot
             fi
-            cd /home/$SERVER_USER/server_monitoring_bot
-
-            # Обновить код
-            git fetch origin
-            git reset --hard origin/main
+            # Исправление прав на проект
+            sudo chown -R $SERVER_USER:$SERVER_USER /home/$SERVER_USER/server_monitoring_bot
+            sudo chmod -R u+rwX /home/$SERVER_USER/server_monitoring_bot
 
             # Настроить виртуальное окружение
+            echo "Setting up virtual environment"
             python3 -m venv venv
             source venv/bin/activate
             pip install --upgrade pip
@@ -57,6 +71,7 @@ jobs:
             }
 
             # Создать .env файл
+            echo "Creating .env file"
             echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" > .env
             echo "DB_HOST=localhost" >> .env
             echo "DB_PORT=5432" >> .env
@@ -67,6 +82,7 @@ jobs:
             chmod 600 .env
 
             # Инициализация базы данных
+            echo "Initializing database"
             if [ ! -f "/home/$SERVER_USER/server_monitoring_bot/.db_initialized" ]; then
               psql -U monitor_user -d server_monitoring -f database/schema.sql || {
                 echo "Failed to initialize database"; exit 1;
@@ -75,6 +91,7 @@ jobs:
             fi
 
             # Перезапустить сервис
+            echo "Restarting telegram-bot service"
             sudo systemctl restart telegram-bot
             sudo systemctl status telegram-bot
           EOF
