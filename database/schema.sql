@@ -1,4 +1,3 @@
-```sql
 -- Схема базы данных для Telegram бота мониторинга серверов
 
 -- Таблица пользователей
@@ -48,4 +47,3 @@ CREATE INDEX idx_users_status ON users(status);                    -- Для б�
 CREATE INDEX idx_servers_user_id ON servers(user_id);              -- Для быстрого поиска серверов пользователя
 CREATE INDEX idx_server_status_server_id ON server_status(server_id); -- Для быстрого поиска статусов сервера
 CREATE INDEX idx_notifications_server_id ON notifications(server_id); -- Для быстрого поиска уведомлений по серверу
-```
