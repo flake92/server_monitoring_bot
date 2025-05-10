@@ -87,7 +87,7 @@ class DBManager:
             self.conn.commit()
             logger.info(f"Сервер {name} добавлен для пользователя {user_id}")
 
-    def get_user_servers(self, user_id: ragsList[Server]:
+   def get_user_servers(self, user_id: List[Server]) -> List[Server]:
         """Получение серверов пользователя."""
         with self.conn.cursor() as cur:
             cur.execute("SELECT * FROM servers WHERE user_id = %s", (user_id,))

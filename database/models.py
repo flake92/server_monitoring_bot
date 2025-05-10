@@ -12,13 +12,12 @@ class User:
 
 @dataclass
 class Server:
-    """Модель сервера."""
-    id: int
-    user_id: int
-    name: str
-    address: str
-    check_type: str  # icmp, http, https
-    created_at: datetime
+    def __init__(self, id: int, name: str, ip_address: str, status: str, last_checked: str):
+        self.id = id
+        self.name = name
+        self.ip_address = ip_address
+        self.status = status
+        self.last_checked = last_checked
 
 @dataclass
 class ServerStatus:

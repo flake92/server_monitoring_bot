@@ -107,6 +107,15 @@ jobs:
               touch /home/\$SERVER_USER/server_monitoring_bot/.db_initialized
             fi
 
+            # Проверка синтаксиса Python
+            echo "Checking Python syntax"
+            python3 -m py_compile main.py || {
+              echo "Syntax error in main.py or its dependencies"; exit 1;
+            }
+            python3 -m py_compile database/db_manager.py || {
+              echo "Syntax error in db_manager.py"; exit 1;
+            }
+
             # Перезапустить сервис
             echo "Restarting telegram-bot service"
             sudo systemctl restart telegram-bot
