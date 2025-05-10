@@ -18,14 +18,17 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+          ssh-keyscan -p 46928 -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts || {
+            echo "Failed to scan SSH host key for ${{ secrets.SERVER_IP }} on port 46928"; exit 1;
+          }
 
       - name: Deploy to server
         env:
           SERVER_IP: ${{ secrets.SERVER_IP }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 $SERVER_USER@$SERVER_IP << 'EOF'
+          ssh -i ~/.ssh/id_ed25519 -p 46928 -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP << 'EOF'
+            set -e
             # Перейти в директорию проекта или клонировать
             if [ ! -d "/home/$SERVER_USER/server_monitoring_bot" ]; then
               git clone https://github.com/<ваш_пользователь>/<ваш_репозиторий>.git /home/$SERVER_USER/server_monitoring_bot
@@ -48,16 +51,19 @@ jobs:
             echo "DB_PORT=5432" >> .env
             echo "DB_NAME=server_monitoring" >> .env
             echo "DB_USER=monitor_user" >> .env
-            echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
-            echo "ADMIN_IDS=${{ secrets.ADMIN_IDS }}" >> .env
+            echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" > .env
+            echo "ADMIN_IDS=${{ secrets.ADMIN_IDS }}" > .env
             chmod 600 .env
 
-            # Инициализация базы данных (если схема не применена)
+            # Инициализация базы данных
             if [ ! -f "/home/$SERVER_USER/server_monitoring_bot/.db_initialized" ]; then
-              psql -U monitor_user -d server_monitoring -f database/schema.sql
+              psql -U monitor_user -d server_monitoring -f database/schema.sql || {
+                echo "Failed to initialize database"; exit 1;
+              }
               touch /home/$SERVER_USER/server_monitoring_bot/.db_initialized
             fi
 
             # Перезапустить сервис
             sudo systemctl restart telegram-bot
+            sudo systemctl status telegram-bot
           EOF
