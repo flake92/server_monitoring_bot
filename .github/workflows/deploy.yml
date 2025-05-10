@@ -34,7 +34,7 @@ jobs:
             set -e
             # Перейти в директорию проекта или клонировать
             if [ ! -d "/home/$SERVER_USER/server_monitoring_bot" ]; then
-              git clone https://github.com/<ваш_пользователь>/<ваш_репозиторий>.git /home/$SERVER_USER/server_monitoring_bot
+              git clone https://github.com/flake92/server_monitoring_bot.git /home/$SERVER_USER/server_monitoring_bot
             fi
             cd /home/$SERVER_USER/server_monitoring_bot
 
