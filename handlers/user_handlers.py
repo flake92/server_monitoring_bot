@@ -52,7 +52,7 @@ def register_handlers(dp: Dispatcher):
             "/check_servers - Проверить статус серверов"
         )
 
-    @dp.message_handler(commands=['add_server'], regexp_commands=['add_server'])
+    @dp.message_handler(commands=['add_server'])
     async def add_server_command(message: Message):
         logger.info(f"Received /add_server from user {message.from_user.id}")
         try:
@@ -99,7 +99,7 @@ def register_handlers(dp: Dispatcher):
         finally:
             dp.message_handlers.unregister(process_add_server)
 
-    @dp.message_handler(commands=['list_servers'], regexp_commands=['list_servers'])
+    @dp.message_handler(commands=['list_servers'])
     async def list_servers_command(message: Message):
         logger.info(f"Received /list_servers from user {message.from_user.id}")
         try:
@@ -122,7 +122,7 @@ def register_handlers(dp: Dispatcher):
             logger.error(f"Error in list_servers_command: {e}")
             await message.reply("Произошла ошибка. Попробуйте позже.")
 
-    @dp.message_handler(commands=['edit_server'], regexp_commands=['edit_server'])
+    @dp.message_handler(commands=['edit_server'])
     async def edit_server_command(message: Message):
         logger.info(f"Received /edit_server from user {message.from_user.id}")
         try:
@@ -178,7 +178,7 @@ def register_handlers(dp: Dispatcher):
         finally:
             dp.message_handlers.unregister(process_edit_server)
 
-    @dp.message_handler(commands=['delete_server'], regexp_commands=['delete_server'])
+    @dp.message_handler(commands=['delete_server'])
     async def delete_server_command(message: Message):
         logger.info(f"Received /delete_server from user {message.from_user.id}")
         try:
@@ -217,7 +217,7 @@ def register_handlers(dp: Dispatcher):
         finally:
             dp.message_handlers.unregister(process_delete_server)
 
-    @dp.message_handler(commands=['check_servers'], regexp_commands=['check_servers'])
+    @dp.message_handler(commands=['check_servers'])
     async def check_servers_command(message: Message):
         logger.info(f"Received /check_servers from user {message.from_user.id}")
         try:
