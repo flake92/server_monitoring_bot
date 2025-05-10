@@ -40,6 +40,9 @@ jobs:
             echo "Home directory: $HOME"
             echo "User: $(whoami)"
             # Проверка домашней директории
+            if [ -z "$SERVER_USER" ]; then
+              echo "SERVER_USER is empty in SSH session"; exit 1;
+            fi
             if [ ! -d "/home/$SERVER_USER" ]; then
               echo "Home directory /home/$SERVER_USER does not exist"; exit 1;
             fi
