@@ -1,33 +1,25 @@
 import os
 from dotenv import load_dotenv
-from typing import List
+from utils.logger import setup_logger
+
+logger = setup_logger(__name__)
 
 load_dotenv()
 
 class Config:
-    """Класс для управления конфигурацией бота."""
-    
-    BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
-    DB_HOST: str = os.getenv("DB_HOST", "localhost")
-    DB_PORT: str = os.getenv("DB_PORT", "5432")
-    DB_NAME: str = os.getenv("DB_NAME", "server_monitoring")
-    DB_USER: str = os.getenv("DB_USER", "monitor_user")
-    DB_PASSWORD: str = os.getenv("DB_PASSWORD", "secure_password")
-    ADMIN_IDS: List[int] = [int(id) for id in os.getenv("ADMIN_IDS", "").split(",") if id.strip().isdigit()]
-    
-    @classmethod
-    def validate(cls) -> None:
-        """Валидация конфигурационных данных."""
-        if not cls.BOT_TOKEN:
-            raise ValueError("Токен бота не указан в .env")
-        if not cls.DB_PASSWORD:
-            raise ValueError("Пароль базы данных не указан в .env")
-        if not cls.ADMIN_IDS:
-            raise ValueError("Список ADMIN_IDS не указан или пуст в .env")
-
-if __name__ == "__main__":
-    try:
-        Config.validate()
-        print("Конфигурация успешно проверена")
-    except Exception as e:
-        print(f"Ошибка конфигурации: {str(e)}")
+    def __init__(self):
+        self.bot_token = os.getenv('BOT_TOKEN')
+        if not self.bot_token:
+            logger.error("BOT_TOKEN is not set in .env")
+            raise ValueError("BOT_TOKEN is required")
+        self.db_host = os.getenv('DB_HOST', 'localhost')
+        self.db_port = os.getenv('DB_PORT', '5432')
+        self.db_name = os.getenv('DB_NAME', 'server_monitoring')
+        self.db_user = os.getenv('DB_USER', 'monitor_user')
+        self.db_password = os.getenv('DB_PASSWORD')
+        if not self.db_password:
+            logger.error("DB_PASSWORD is not set in .env")
+            raise ValueError("DB_PASSWORD is required")
+        self.admin_ids = os.getenv('ADMIN_IDS', '')
+        self.monitoring_interval = 60  # Секунды
+        self.cooldown_period = 20  # Секунды

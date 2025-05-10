@@ -1,15 +1,34 @@
 from aiogram import Dispatcher
 from aiogram.types import Message
-import logging
+from database.db_manager import DBManager
+from services.monitoring import check_server
+from utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 def register_handlers(dp: Dispatcher):
     @dp.message_handler(commands=['monitor'])
     async def monitor_command(message: Message):
         logger.info(f"Received /monitor from user {message.from_user.id}")
         try:
-            await message.reply("Monitoring status (placeholder).")
+            db = DBManager()
+            user = db.get_user(message.from_user.id)
+            if user is None or user.status != 'approved':
+                await message.reply("Вы не зарегистрированы или не одобрены.")
+                db.close()
+                return
+            servers = db.get_user_servers(message.from_user.id)
+            if not servers:
+                await message.reply("У вас нет серверов.")
+                db.close()
+                return
+            response = "Статус серверов:\n"
+            for server in servers:
+                status = await check_server(server)
+                db.update_server_status(server.id, status, server.last_checked)
+                response += f"{server.name} ({server.address}): {status}\n"
+            await message.reply(response)
+            db.close()
         except Exception as e:
             logger.error(f"Error in monitor_command: {e}")
-            await message.reply("An error occurred.")
+            await message.reply("Произошла ошибка при проверке серверов.")

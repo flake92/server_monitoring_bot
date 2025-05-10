@@ -2,25 +2,21 @@ import logging
 from aiogram import Bot, Dispatcher, executor
 from dotenv import load_dotenv
 import os
+import asyncio
 from handlers import user_handlers, admin_handlers, monitoring_handlers
+from services.monitoring import start_monitoring
+from config.config import Config
+from utils.logger import setup_logger
 
 # Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('bot.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
-# Загрузка .env
+# Загрузка конфигурации
 load_dotenv()
-BOT_TOKEN = os.getenv('BOT_TOKEN')
+config = Config()
 
 # Инициализация бота
-bot = Bot(token=BOT_TOKEN)
+bot = Bot(token=config.bot_token)
 dp = Dispatcher(bot)
 
 # Регистрация обработчиков
@@ -28,9 +24,12 @@ user_handlers.register_handlers(dp)
 admin_handlers.register_handlers(dp)
 monitoring_handlers.register_handlers(dp)
 
-if __name__ == '__main__':
+async def on_startup(_):
     logger.info("Starting bot")
+    asyncio.create_task(start_monitoring(bot, config))
+
+if __name__ == '__main__':
     try:
-        executor.start_polling(dp, skip_updates=True)
+        executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
     except Exception as e:
         logger.error(f"Bot failed to start: {e}")

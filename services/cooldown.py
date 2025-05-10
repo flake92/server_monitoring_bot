@@ -1,31 +1,11 @@
-from typing import Dict
-import time
-import logging
+from datetime import datetime
+from utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
-class CooldownManager:
-    """Класс для управления периодами охлаждения."""
-
-    def __init__(self):
-        self.cooldowns: Dict[int, float] = {}
-
-    def set_cooldown(self, server_id: int, duration: float) -> None:
-        """Установка периода охлаждения для сервера."""
-        self.cooldowns[server_id] = time.time() + duration
-        logger.info(f"Период охлаждения установлен для сервера {server_id} на {duration} секунд")
-
-    def is_on_cooldown(self, server_id: int) -> bool:
-        """Проверка, находится ли сервер в периоде охлаждения."""
-        if server_id in self.cooldowns:
-            if time.time() < self.cooldowns[server_id]:
-                return True
-            else:
-                self.clear_cooldown(server_id)
+def is_cooldown_passed(last_notification_time: datetime, current_time: datetime, cooldown_period: int) -> bool:
+    try:
+        return (current_time - last_notification_time).total_seconds() >= cooldown_period
+    except Exception as e:
+        logger.error(f"Error in is_cooldown_passed: {e}")
         return False
-
-    def clear_cooldown(self, server_id: int) -> None:
-        """Очистка периода охлаждения."""
-        if server_id in self.cooldowns:
-            del self.cooldowns[server_id]
-            logger.info(f"Период охлаждения очищен для сервера {server_id}")

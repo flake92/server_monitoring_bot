@@ -40,16 +40,12 @@ jobs:
             echo "Deploying as user: \$SERVER_USER"
             echo "Home directory: \$HOME"
             echo "User: \$(whoami)"
-            # Проверка SERVER_USER
             if [ -z "\$SERVER_USER" ]; then
               echo "SERVER_USER is empty in SSH session"; exit 1;
             fi
-            # Проверка домашней директории
             if [ ! -d "/home/$SERVER_USER" ]; then
               echo "Home directory /home/$SERVER_USER does not exist"; exit 1;
             fi
-            # Очистка и клонирование репозитория
-            echo "Setting up project directory"
             if [ -d "/home/$SERVER_USER/server_monitoring_bot" ]; then
               echo "Directory /home/$SERVER_USER/server_monitoring_bot exists, removing and re-cloning"
               rm -rf /home/$SERVER_USER/server_monitoring_bot
@@ -59,24 +55,18 @@ jobs:
               echo "Failed to clone repository"; exit 1;
             }
             cd /home/$SERVER_USER/server_monitoring_bot
-            # Проверка наличия файлов после клонирования
             echo "Checking repository contents"
-            ls -l *.py handlers/*.py database/*.py || {
+            ls -l *.py config/*.py handlers/*.py database/*.py services/*.py utils/*.py || {
               echo "No Python files found in repository"; exit 1;
             }
-            # Исправление прав
             sudo chown -R \$SERVER_USER:\$SERVER_USER /home/$SERVER_USER/server_monitoring_bot
             sudo chmod -R u+rwX /home/$SERVER_USER/server_monitoring_bot
-
-            # Проверка requirements.txt
             echo "Checking requirements.txt"
             if [ ! -f requirements.txt ]; then
               echo "requirements.txt not found"; exit 1;
             fi
             echo "requirements.txt contents:"
             cat requirements.txt
-
-            # Настроить виртуальное окружение
             echo "Setting up virtual environment"
             python3 -m venv venv
             source venv/bin/activate
@@ -84,16 +74,16 @@ jobs:
             pip install -r requirements.txt || {
               echo "Failed to install requirements"; exit 1;
             }
-            echo "Checking aiogram version"
+            echo "Checking dependencies"
             pip show aiogram
-
-            # Проверка BOT_TOKEN
+            pip show psycopg2-binary
+            pip show python-dotenv
+            pip show aiohttp
+            pip show ping3
             echo "Checking BOT_TOKEN"
             if [ -z "${{ secrets.BOT_TOKEN }}" ]; then
               echo "BOT_TOKEN secret is empty"; exit 1;
             fi
-
-            # Создать .env файл
             echo "Creating .env file"
             echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" > .env
             echo "DB_HOST=localhost" >> .env
@@ -105,8 +95,6 @@ jobs:
             chmod 600 .env
             echo ".env contents:"
             cat .env
-
-            # Инициализация базы данных
             echo "Initializing database"
             if [ ! -f "/home/$SERVER_USER/server_monitoring_bot/.db_initialized" ]; then
               if [ ! -f "database/schema.sql" ]; then
@@ -119,10 +107,8 @@ jobs:
               unset PGPASSWORD
               touch /home/$SERVER_USER/server_monitoring_bot/.db_initialized
             fi
-
-            # Проверка синтаксиса Python
             echo "Checking Python syntax"
-            for file in *.py database/*.py handlers/*.py; do
+            for file in *.py config/*.py handlers/*.py database/*.py services/*.py utils/*.py; do
               if [ -f "\$file" ]; then
                 echo "Checking \$file"
                 python3 -m py_compile "\$file" || {
@@ -130,14 +116,10 @@ jobs:
                 }
               fi
             done
-
-            # Проверка наличия handlers
             echo "Checking handlers directory"
             ls -l handlers/*.py || echo "No handler files found"
             echo "Checking handlers/__init__.py contents"
             cat handlers/__init__.py
-
-            # Перезапустить сервис
             echo "Restarting telegram-bot service"
             sudo systemctl restart telegram-bot
             sudo systemctl status telegram-bot

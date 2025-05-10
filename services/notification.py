@@ -1,25 +1,33 @@
 from aiogram import Bot
+from datetime import datetime
 from database.db_manager import DBManager
-import logging
-from typing import List
-from database.models import Notification
+from services.cooldown import is_cooldown_passed
+from utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
-class NotificationService:
-    """Класс для отправки уведомлений."""
-
-    def __init__(self, bot: Bot, db: DBManager):
-        self.bot = bot
-        self.db = db
-
-    async def send_pending_notifications(self) -> None:
-        """Отправка неподтвержденных уведомлений."""
-        notifications: List[Notification] = self.db.get_pending_notifications()
-        for notification in notifications:
-            try:
-                await self.bot.send_message(notification.user_id, notification.message)
-                self.db.update_notification_status(notification.id, "sent")
-                logger.info(f"Уведомление {notification.id} отправлено пользователю {notification.user_id}")
-            except Exception as e:
-                logger.error(f"Ошибка отправки уведомления {notification.id}: {str(e)}")
+async def send_notification(bot: Bot, server, status: str, config):
+    try:
+        db = DBManager()
+        user = db.get_user(server.user_id)
+        if user.status != 'approved':
+            db.close()
+            return
+        notification_time = datetime.now()
+        pending_notifications = db.get_pending_notifications(server.id, status)
+        if pending_notifications:
+            for notification in pending_notifications:
+                if is_cooldown_passed(notification.timestamp, notification_time, config.cooldown_period):
+                    await bot.send_message(
+                        server.user_id,
+                        f"Сервер: {server.name}\n"
+                        f"Адрес: {server.address}\n"
+                        f"Статус: {'недоступен' if status == 'офлайн' else 'восстановлен'}\n"
+                        f"Время: {notification_time.strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                    db.delete_notification(notification.id)
+        else:
+            db.add_notification(server.id, server.user_id, status, notification_time)
+        db.close()
+    except Exception as e:
+        logger.error(f"Error in send_notification for server {server.name}: {e}")

@@ -1,156 +1,188 @@
 import psycopg2
-from psycopg2.extras import RealDictCursor
-from typing import List, Optional
+from dotenv import load_dotenv
+import os
 from datetime import datetime
-import logging
-from config.config import Config
-from database.models import User, Server, ServerStatus, Notification
+from database.models import Server, User, Notification
+from utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
+
+load_dotenv()
 
 class DBManager:
-    """Класс для управления PostgreSQL."""
-
     def __init__(self):
-        self.conn = None
-        self.connect()
-
-    def connect(self) -> None:
-        """Установка соединения с базой данных."""
         try:
             self.conn = psycopg2.connect(
-                host=Config.DB_HOST,
-                port=Config.DB_PORT,
-                database=Config.DB_NAME,
-                user=Config.DB_USER,
-                password=Config.DB_PASSWORD,
-                cursor_factory=RealDictCursor
+                host=os.getenv('DB_HOST'),
+                port=os.getenv('DB_PORT'),
+                dbname=os.getenv('DB_NAME'),
+                user=os.getenv('DB_USER'),
+                password=os.getenv('DB_PASSWORD')
             )
-            logger.info("Подключение к PostgreSQL установлено")
+            self.cursor = self.conn.cursor()
         except Exception as e:
-            logger.error(f"Ошибка подключения к PostgreSQL: {str(e)}")
+            logger.error(f"Failed to connect to database: {e}")
             raise
 
-    def close(self) -> None:
-        """Закрытие соединения."""
-        if self.conn:
+    def add_user(self, user_id: int, username: str):
+        try:
+            self.cursor.execute(
+                "INSERT INTO users (user_id, username, status) VALUES (%s, %s, 'pending') ON CONFLICT (user_id) DO NOTHING",
+                (user_id, username)
+            )
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error in add_user: {e}")
+            raise
+
+    def get_user(self, user_id: int) -> User:
+        try:
+            self.cursor.execute("SELECT user_id, username, status FROM users WHERE user_id = %s", (user_id,))
+            row = self.cursor.fetchone()
+            return User(*row) if row else None
+        except Exception as e:
+            logger.error(f"Error in get_user: {e}")
+            raise
+
+    def update_user_status(self, user_id: int, status: str):
+        try:
+            self.cursor.execute("UPDATE users SET status = %s WHERE user_id = %s", (status, user_id))
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error in update_user_status: {e}")
+            raise
+
+    def delete_user(self, user_id: int):
+        try:
+            self.cursor.execute("DELETE FROM servers WHERE user_id = %s", (user_id,))
+            self.cursor.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error in delete_user: {e}")
+            raise
+
+    def get_pending_users(self) -> list[User]:
+        try:
+            self.cursor.execute("SELECT user_id, username, status FROM users WHERE status = 'pending'")
+            return [User(*row) for row in self.cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error in get_pending_users: {e}")
+            raise
+
+    def get_approved_users(self) -> list[User]:
+        try:
+            self.cursor.execute("SELECT user_id, username, status FROM users WHERE status = 'approved'")
+            return [User(*row) for row in self.cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error in get_approved_users: {e}")
+            raise
+
+    def add_server(self, user_id: int, name: str, address: str, check_type: str):
+        try:
+            self.cursor.execute(
+                "INSERT INTO servers (user_id, name, address, check_type, status, last_checked) "
+                "VALUES (%s, %s, %s, %s, 'unknown', NULL)",
+                (user_id, name, address, check_type)
+            )
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error in add_server: {e}")
+            raise
+
+    def update_server(self, server_id: int, name: str, address: str, check_type: str):
+        try:
+            self.cursor.execute(
+                "UPDATE servers SET name = %s, address = %s, check_type = %s WHERE id = %s",
+                (name, address, check_type, server_id)
+            )
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error in update_server: {e}")
+            raise
+
+    def delete_server(self, server_id: int):
+        try:
+            self.cursor.execute("DELETE FROM notifications WHERE server_id = %s", (server_id,))
+            self.cursor.execute("DELETE FROM servers WHERE id = %s", (server_id,))
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error in delete_server: {e}")
+            raise
+
+    def get_user_servers(self, user_id: int) -> list[Server]:
+        try:
+            self.cursor.execute(
+                "SELECT id, user_id, name, address, check_type, status, last_checked FROM servers WHERE user_id = %s",
+                (user_id,)
+            )
+            return [Server(*row) for row in self.cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error in get_user_servers: {e}")
+            raise
+
+    def get_all_servers(self) -> list[Server]:
+        try:
+            self.cursor.execute(
+                "SELECT id, user_id, name, address, check_type, status, last_checked FROM servers"
+            )
+            return [Server(*row) for row in self.cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error in get_all_servers: {e}")
+            raise
+
+    def update_server_status(self, server_id: int, status: str, last_checked: datetime):
+        try:
+            self.cursor.execute(
+                "UPDATE servers SET status = %s, last_checked = %s WHERE id = %s",
+                (status, last_checked, server_id)
+            )
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error in update_server_status: {e}")
+            raise
+
+    def add_notification(self, server_id: int, user_id: int, status: str, timestamp: datetime):
+        try:
+            self.cursor.execute(
+                "INSERT INTO notifications (server_id, user_id, status, timestamp) VALUES (%s, %s, %s, %s)",
+                (server_id, user_id, status, timestamp)
+            )
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error in add_notification: {e}")
+            raise
+
+    def get_pending_notifications(self, server_id: int, status: str) -> list[Notification]:
+        try:
+            self.cursor.execute(
+                "SELECT id, server_id, user_id, status, timestamp FROM notifications "
+                "WHERE server_id = %s AND status = %s",
+                (server_id, status)
+            )
+            return [Notification(*row) for row in self.cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error in get_pending_notifications: {e}")
+            raise
+
+    def delete_notification(self, notification_id: int):
+        try:
+            self.cursor.execute("DELETE FROM notifications WHERE id = %s", (notification_id,))
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error in delete_notification: {e}")
+            raise
+
+    def clear_notifications(self):
+        try:
+            self.cursor.execute("DELETE FROM notifications")
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error in clear_notifications: {e}")
+            raise
+
+    def close(self):
+        try:
+            self.cursor.close()
             self.conn.close()
-            logger.info("Соединение с PostgreSQL закрыто")
-
-    def add_user(self, user_id: int, username: Optional[str]) -> None:
-        """Добавление пользователя."""
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO users (id, username, status, created_at)
-                VALUES (%s, %s, 'pending', %s)
-                ON CONFLICT (id) DO NOTHING
-                """,
-                (user_id, username, datetime.utcnow())
-            )
-            self.conn.commit()
-            logger.info(f"Пользователь {user_id} добавлен")
-
-    def get_user(self, user_id: int) -> Optional[User]:
-        """Получение пользователя по ID."""
-        with self.conn.cursor() as cur:
-            cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
-            result = cur.fetchone()
-            return User(**result) if result else None
-
-    def update_user_status(self, user_id: int, status: str) -> None:
-        """Обновление статуса пользователя."""
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "UPDATE users SET status = %s WHERE id = %s",
-                (status, user_id)
-            )
-            self.conn.commit()
-            logger.info(f"Статус пользователя {user_id} обновлен на {status}")
-
-    def get_pending_users(self) -> List[User]:
-        """Получение списка пользователей на модерации."""
-        with self.conn.cursor() as cur:
-            cur.execute("SELECT * FROM users WHERE status = 'pending'")
-            return [User(**row) for row in cur.fetchall()]
-
-    def add_server(self, user_id: int, name: str, address: str, check_type: str) -> None:
-        """Добавление сервера."""
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO servers (user_id, name, address, check_type, created_at)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                (user_id, name, address, check_type, datetime.utcnow())
-            )
-            self.conn.commit()
-            logger.info(f"Сервер {name} добавлен для пользователя {user_id}")
-
-    def get_user_servers(self, user_id: List[Server]) -> List[Server]:
-        """Получение серверов пользователя."""
-        with self.conn.cursor() as cur:
-            cur.execute("SELECT * FROM servers WHERE user_id = %s", (user_id,))
-            return [Server(**row) for row in cur.fetchall()]
-
-    def delete_server(self, server_id: int, user_id: int) -> None:
-        """Удаление сервера."""
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM servers WHERE id = %s AND user_id = %s",
-                (server_id, user_id)
-            )
-            self.conn.commit()
-            logger.info(f"Сервер {server_id} удален для пользователя {user_id}")
-
-    def add_status(self, server_id: int, is_available: bool, message: Optional[str]) -> None:
-        """Добавление статуса сервера."""
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO server_statuses (server_id, is_available, message, checked_at)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (server_id, is_available, message, datetime.utcnow())
-            )
-            self.conn.commit()
-            logger.info(f"Статус сервера {server_id} добавлен")
-
-    def add_notification(self, server_id: int, user_id: int, message: str) -> None:
-        """Добавление уведомления."""
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO notifications (server_id, user_id, message, status, created_at)
-                VALUES (%s, %s, %s, 'pending', %s)
-                """,
-                (server_id, user_id, message, datetime.utcnow())
-            )
-            self.conn.commit()
-            logger.info(f"Уведомление добавлено для сервера {server_id}")
-
-    def get_pending_notifications(self) -> List[Notification]:
-        """Получение неподтвержденных уведомлений."""
-        with self.conn.cursor() as cur:
-            cur.execute("SELECT * FROM notifications WHERE status = 'pending'")
-            return [Notification(**row) for row in cur.fetchall()]
-
-    def update_notification_status(self, notification_id: int, status: str) -> None:
-        """Обновление статуса уведомления."""
-        with self.conn.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE notifications SET status = %s, sent_at = %s WHERE id = %s
-                """,
-                (status, datetime.utcnow(), notification_id)
-            )
-            self.conn.commit()
-            logger.info(f"Статус уведомления {notification_id} обновлен на {status}")
-
-if __name__ == "__main__":
-    db = DBManager()
-    try:
-        user = db.get_user(123456789)
-        print(f"Пользователь: {user}")
-    finally:
-        db.close()
+        except Exception as e:
+            logger.error(f"Error in close: {e}")
