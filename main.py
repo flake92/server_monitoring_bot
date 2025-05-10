@@ -20,6 +20,9 @@ async def main():
     monitor = ServerMonitor(cooldown_manager)
     notification_service = NotificationService(bot)
 
+    # Настройка middleware для передачи зависимостей
+    dp.middleware.setup(lambda update, data: {"db": db, "monitor": monitor})
+
     await monitor.start()
 
     # Регистрация обработчиков
