@@ -1,19 +1,31 @@
-from datetime import datetime, timedelta
-from config.config import Config
+from typing import Dict
+import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 class CooldownManager:
+    """Класс для управления периодами охлаждения."""
+
     def __init__(self):
-        self.cooldowns = {}
+        self.cooldowns: Dict[int, float] = {}
 
-    def start_cooldown(self, server_id: int):
-        self.cooldowns[server_id] = datetime.now()
+    def set_cooldown(self, server_id: int, duration: float) -> None:
+        """Установка периода охлаждения для сервера."""
+        self.cooldowns[server_id] = time.time() + duration
+        logger.info(f"Период охлаждения установлен для сервера {server_id} на {duration} секунд")
 
-    async def is_cooldown_valid(self, server_id: int) -> bool:
-        if server_id not in self.cooldowns:
-            return False
-        elapsed = datetime.now() - self.cooldowns[server_id]
-        return elapsed.total_seconds() >= Config.COOLDOWN_PERIOD
+    def is_on_cooldown(self, server_id: int) -> bool:
+        """Проверка, находится ли сервер в периоде охлаждения."""
+        if server_id in self.cooldowns:
+            if time.time() < self.cooldowns[server_id]:
+                return True
+            else:
+                self.clear_cooldown(server_id)
+        return False
 
-    def clear_cooldown(self, server_id: int):
+    def clear_cooldown(self, server_id: int) -> None:
+        """Очистка периода охлаждения."""
         if server_id in self.cooldowns:
             del self.cooldowns[server_id]
+            logger.info(f"Период охлаждения очищен для сервера {server_id}")

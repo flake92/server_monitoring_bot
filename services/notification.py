@@ -1,28 +1,25 @@
-from database.db_manager import DatabaseManager
-from database.models import Notification, Server
 from aiogram import Bot
-from config.config import Config
+from database.db_manager import DBManager
+import logging
+from typing import List
+from database.models import Notification
+
+logger = logging.getLogger(__name__)
 
 class NotificationService:
-    def __init__(self, bot: Bot):
+    """Класс для отправки уведомлений."""
+
+    def __init__(self, bot: Bot, db: DBManager):
         self.bot = bot
+        self.db = db
 
-    async def queue_notification(self, server: Server, message: str, user_id: int, db: DatabaseManager):
-        notification = Notification(
-            id=0,
-            server_id=server.id,
-            user_id=user_id,
-            message=message,
-            sent_at=datetime.now(),
-            is_sent=False
-        )
-        await db.add_notification(notification)
-
-    async def send_notifications(self, db: DatabaseManager):
-        notifications = await db.get_unsent_notifications()
+    async def send_pending_notifications(self) -> None:
+        """Отправка неподтвержденных уведомлений."""
+        notifications: List[Notification] = self.db.get_pending_notifications()
         for notification in notifications:
             try:
                 await self.bot.send_message(notification.user_id, notification.message)
-                await db.mark_notification_sent(notification.id)
+                self.db.update_notification_status(notification.id, "sent")
+                logger.info(f"Уведомление {notification.id} отправлено пользователю {notification.user_id}")
             except Exception as e:
-                print(f"Failed to send notification {notification.id}: {e}")
+                logger.error(f"Ошибка отправки уведомления {notification.id}: {str(e)}")

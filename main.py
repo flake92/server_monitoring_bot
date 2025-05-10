@@ -1,50 +1,40 @@
 import asyncio
 from aiogram import Bot, Dispatcher
 from config.config import Config
-from database.db_manager import DatabaseManager
-from handlers import user_handlers, admin_handlers, monitoring_handlers
-from services.monitoring import ServerMonitor
-from services.notification import NotificationService
-from services.cooldown import CooldownManager
+from database.db_manager import DBManager
 from utils.logger import setup_logger
+from handlers import user_handlers, admin_handlers, monitoring_handlers
+import logging
+
+logger = logging.getLogger(__name__)
 
 async def main():
-    logger = setup_logger()
-    bot = Bot(token=Config.BOT_TOKEN)
-    dp = Dispatcher(bot)
-
-    db = DatabaseManager()
-    await db.connect()
-
-    cooldown_manager = CooldownManager()
-    monitor = ServerMonitor(cooldown_manager)
-    notification_service = NotificationService(bot)
-
-    # Настройка middleware для передачи зависимостей
-    dp.middleware.setup(lambda update, data: {"db": db, "monitor": monitor})
-
-    await monitor.start()
-
-    # Регистрация обработчиков
-    user_handlers.register_handlers(dp)
-    admin_handlers.register_handlers(dp)
-    monitoring_handlers.register_handlers(dp)
-
-    async def monitoring_task():
-        while True:
-            await monitor.monitor_servers(db, notification_service)
-            await notification_service.send_notifications(db)
-            await asyncio.sleep(60)  # Проверка каждую минуту
-
+    """Основная функция программы."""
+    setup_logger()
+    
     try:
-        await asyncio.gather(
-            dp.start_polling(),
-            monitoring_task()
-        )
+        Config.validate()
+        logger.info("Конфигурация проверена")
+
+        db = DBManager()
+        bot = Bot(token=Config.BOT_TOKEN)
+        dp = Dispatcher()
+
+        dp.include_router(user_handlers.router)
+        dp.include_router(admin_handlers.router)
+
+        dp["db"] = db
+
+        asyncio.create_task(monitoring_handlers.monitor_servers(db, bot))
+
+        await dp.start_polling(bot)
+    except Exception as e:
+        logger.error(f"Критическая ошибка: {str(e)}")
     finally:
-        await monitor.stop()
-        await db.close()
-        await bot.session.close()
+        db.close()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Программа остановлена пользователем")
