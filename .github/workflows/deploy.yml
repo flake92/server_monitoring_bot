@@ -50,24 +50,24 @@ jobs:
             fi
             # Проверка существования директории проекта
             if [ -d "/home/\$SERVER_USER/server_monitoring_bot" ]; then
-              echo "Directory /home/\$SERVER_USER/server_monitoring_bot exists, updating repository"
-              cd /home/\$SERVER_USER/server_monitoring_bot
+              echo "Directory /home\$SERVER_USER/server_monitoring_bot exists, updating repository"
+              cd /home\$SERVER_USER/server_monitoring_bot
               git fetch origin
               git reset --hard origin/main
             else
-              echo "Cloning repository to /home/\$SERVER_USER/server_monitoring_bot"
-              git clone https://github.com/flake92/server_monitoring_bot.git /home/\$SERVER_USER/server_monitoring_bot || {
+              echo "Cloning repository to /home\$SERVER_USER/server_monitoring_bot"
+              git clone https://github.com/flake92/server_monitoring_bot.git /home\$SERVER_USER/server_monitoring_bot || {
                 echo "Failed to clone repository"; exit 1;
               }
-              cd /home/\$SERVER_USER/server_monitoring_bot
+              cd /home\$SERVER_USER/server_monitoring_bot
             fi
             # Исправление прав только для директории проекта
-            sudo chown -R \$SERVER_USER:\$SERVER_USER /home/\$SERVER_USER/server_monitoring_bot
-            sudo chmod -R u+rwX /home/\$SERVER_USER/server_monitoring_bot
+            sudo chown -R \$SERVER_USER:\$SERVER_USER /home\$SERVER_USER/server_monitoring_bot
+            sudo chmod -R u+rwX /home\$SERVER_USER/server_monitoring_bot
 
             # Проверка requirements.txt
             echo "Checking requirements.txt"
-            if [ ! -f requirements.txt ]; then
+            if [ -f requirements.txt ]; then
               echo "requirements.txt not found"; exit 1;
             fi
             echo "requirements.txt contents:"
@@ -97,7 +97,7 @@ jobs:
 
             # Инициализация базы данных
             echo "Initializing database"
-            if [ ! -f "/home/\$SERVER_USER/server_monitoring_bot/.db_initialized" ]; then
+            if [ ! -f "/home\$SERVER_USER/server_monitoring_bot/.db_initialized" ]; then
               if [ ! -f "database/schema.sql" ]; then
                 echo "database/schema.sql not found"; exit 1;
               fi
@@ -119,6 +119,12 @@ jobs:
                 }
               fi
             done
+
+            # Проверка наличия handlers
+            echo "Checking handlers directory"
+            ls -l handlers/*.py || echo "No handler files found"
+            echo "Checking handlers/__init__.py contents"
+            cat handlers/__init__.py
 
             # Перезапустить сервис
             echo "Restarting telegram-bot service"

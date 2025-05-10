@@ -9,7 +9,6 @@ def register_handlers(dp: Dispatcher):
     async def admin_command(message: Message):
         logger.info(f"Received /admin from user {message.from_user.id}")
         try:
-            # Проверка, является ли пользователь админом (по ADMIN_IDS из .env)
             await message.reply("Admin panel (placeholder).")
         except Exception as e:
             logger.error(f"Error in admin_command: {e}")

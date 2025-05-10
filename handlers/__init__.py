@@ -1,3 +1,3 @@
-from .user_handlers import register_handlers as user_handlers
-from .admin_handlers import register_handlers as admin_handlers
-from .monitoring_handlers import register_handlers as monitoring_handlers
+from . import user_handlers
+from . import admin_handlers
+from . import monitoring_handlers
