@@ -7,7 +7,6 @@ from services.monitoring import ServerMonitor
 from services.notification import NotificationService
 from services.cooldown import CooldownManager
 from utils.logger import setup_logger
-from utils.middlewares import DependencyMiddleware
 
 async def main():
     logger = setup_logger()
@@ -22,7 +21,7 @@ async def main():
     notification_service = NotificationService(bot)
 
     # Настройка middleware для передачи зависимостей
-    dp.middleware.setup(DependencyMiddleware(db, monitor))
+    dp.middleware.setup(lambda update, data: {"db": db, "monitor": monitor})
 
     await monitor.start()
 
