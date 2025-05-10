@@ -11,7 +11,7 @@ from utils.logger import setup_logger
 async def main():
     logger = setup_logger()
     bot = Bot(token=Config.BOT_TOKEN)
-    dp = Dispatcher()
+    dp = Dispatcher(bot)
 
     db = DatabaseManager()
     await db.connect()
@@ -22,19 +22,20 @@ async def main():
 
     await monitor.start()
 
-    dp.include_router(user_handlers.router)
-    dp.include_router(admin_handlers.router)
-    dp.include_router(monitoring_handlers.router)
+    # Регистрация обработчиков
+    user_handlers.register_handlers(dp)
+    admin_handlers.register_handlers(dp)
+    monitoring_handlers.register_handlers(dp)
 
     async def monitoring_task():
         while True:
             await monitor.monitor_servers(db, notification_service)
             await notification_service.send_notifications(db)
-            await asyncio.sleep(60)  # Check every minute
+            await asyncio.sleep(60)  # Проверка каждую минуту
 
     try:
         await asyncio.gather(
-            dp.start_polling(bot),
+            dp.start_polling(),
             monitoring_task()
         )
     finally:
