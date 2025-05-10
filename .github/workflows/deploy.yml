@@ -20,6 +20,9 @@ jobs:
           if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
             echo "SSH_PRIVATE_KEY is empty"; exit 1;
           fi
+          if [ -z "${{ secrets.SERVER_USER }}" ]; then
+            echo "SERVER_USER is empty"; exit 1;
+          fi
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -p 46928 -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts || {
             echo "Failed to scan SSH host key for ${{ secrets.SERVER_IP }} on port 46928"; exit 1;
@@ -32,9 +35,12 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_ed25519 -p 46928 -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP << 'EOF'
             set -e
+            echo "Deploying as user: $SERVER_USER"
             # Перейти в директорию проекта или клонировать
             if [ ! -d "/home/$SERVER_USER/server_monitoring_bot" ]; then
-              git clone https://github.com/flake92/server_monitoring_bot.git /home/$SERVER_USER/server_monitoring_bot
+              git clone https://github.com/flake92/server_monitoring_bot.git /home/$SERVER_USER/server_monitoring_bot || {
+                echo "Failed to clone repository"; exit 1;
+              }
             fi
             cd /home/$SERVER_USER/server_monitoring_bot
 
@@ -46,7 +52,9 @@ jobs:
             python3 -m venv venv
             source venv/bin/activate
             pip install --upgrade pip
-            pip install -r requirements.txt
+            pip install -r requirements.txt || {
+              echo "Failed to install requirements"; exit 1;
+            }
 
             # Создать .env файл
             echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" > .env
