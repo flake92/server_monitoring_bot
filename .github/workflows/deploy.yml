@@ -1,0 +1,63 @@
+name: Deploy to Debian Server
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to server
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 $SERVER_USER@$SERVER_IP << 'EOF'
+            # Перейти в директорию проекта или клонировать
+            if [ ! -d "/home/$SERVER_USER/server_monitoring_bot" ]; then
+              git clone https://github.com/<ваш_пользователь>/<ваш_репозиторий>.git /home/$SERVER_USER/server_monitoring_bot
+            fi
+            cd /home/$SERVER_USER/server_monitoring_bot
+
+            # Обновить код
+            git fetch origin
+            git reset --hard origin/main
+
+            # Настроить виртуальное окружение
+            python3 -m venv venv
+            source venv/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt
+
+            # Создать .env файл
+            echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" > .env
+            echo "DB_HOST=localhost" >> .env
+            echo "DB_PORT=5432" >> .env
+            echo "DB_NAME=server_monitoring" >> .env
+            echo "DB_USER=monitor_user" >> .env
+            echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
+            echo "ADMIN_IDS=${{ secrets.ADMIN_IDS }}" >> .env
+            chmod 600 .env
+
+            # Инициализация базы данных (если схема не применена)
+            if [ ! -f "/home/$SERVER_USER/server_monitoring_bot/.db_initialized" ]; then
+              psql -U monitor_user -d server_monitoring -f database/schema.sql
+              touch /home/$SERVER_USER/server_monitoring_bot/.db_initialized
+            fi
+
+            # Перезапустить сервис
+            sudo systemctl restart telegram-bot
+          EOF
