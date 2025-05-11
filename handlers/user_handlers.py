@@ -417,36 +417,83 @@ async def list_pending_users_command(message: Message):
 
 @router.message(Command("delete_user"))
 async def delete_user_command(message: Message):
+    """Обработчик команды удаления пользователя.
+
+    Args:
+        message (Message): Входящее сообщение
+    """
     logger.info(f"Received /delete_user from user {message.from_user.id}")
     try:
+        expected_id_input[str(message.from_user.id)] = 'delete_user'
+        await message.reply(
+            "Введите ID пользователя для удаления:",
+            reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Назад")]], resize_keyboard=True)
+        )
+    except Exception as e:
+        logger.error(f"Error in delete_user_command: {e}")
+        await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_main_menu())
+
+@router.message(F.text)
+async def process_delete_user_id(message: Message):
+    """Обработчик удаления пользователя по ID.
+
+    Args:
+        message (Message): Входящее сообщение с ID пользователя
+    """
+    logger.info(f"Processing delete user ID from user {message.from_user.id}: {message.text}")
+    user_id_str = str(message.from_user.id)
+
+    if message.text == "Назад":
+        expected_id_input.pop(user_id_str, None)
+        await message.reply("Возвращение в главное меню.", reply_markup=get_main_menu())
+        return
+
+    try:
+        if user_id_str not in expected_id_input or expected_id_input[user_id_str] != 'delete_user':
+            return
+
         config = Config()
         admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
         logger.info(f"Parsed admin_ids for delete_user: {admin_ids}")
+
         if not admin_ids:
             logger.error("No admin IDs configured in ADMIN_IDS")
-            await message.reply("Ошибка: список администраторов пуст.")
+            await message.reply("Ошибка: список администратов пуст.")
             return
-        if str(message.from_user.id) not in admin_ids:
+
+        if user_id_str not in admin_ids:
             logger.warning(f"Access denied for user {message.from_user.id}")
             await message.reply("Доступ запрещён.")
             return
-        args = message.get_args()
-        if not args:
-            await message.reply("Укажите ID пользователя. Пример: /delete_user 123456789")
-            return
+
         try:
-            user_id = int(args.strip())
+            user_id = int(message.text.strip())
         except ValueError:
-            await message.reply("ID пользователя должен быть числом.")
+            await message.reply("ИД пользователя должен быть числом.")
             return
+
         db = DBManager()
         user = db.get_user(user_id)
+
         if user is None:
             await message.reply(f"Пользователь с ID {user_id} не найден.", reply_markup=get_admin_menu())
         else:
             db.delete_user(user_id)
             await message.reply(f"Пользователь с ID {user_id} удалён.", reply_markup=get_admin_menu())
+            try:
+                await message.bot.send_message(
+                    user_id,
+                    "Ваша заявка отклонена. Вы можете попробовать зарегистрироваться позже."
+                )
+                logger.info(f"Sent rejection notification to user {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to notify user {user_id} about rejection: {e}")
+                await message.reply(
+                    f"Пользователь {user_id} удалён, но не удалось отправить уведомление: {str(e)}",
+                    reply_markup=get_admin_menu()
+                )
         db.close()
+        expected_id_input.pop(user_id_str, None)
     except Exception as e:
         logger.error(f"Error in delete_user_command: {e}")
         await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_admin_menu())
