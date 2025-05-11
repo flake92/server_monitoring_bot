@@ -30,6 +30,35 @@ def register_handlers(dp: Dispatcher):
             logger.error(f"Error in admin_command: {e}")
             await message.reply("Произошла ошибка. Попробуйте позже.")
 
+    @dp.message_handler(commands=['reset_pending'])
+    async def reset_pending_command(message: Message):
+        logger.info(f"Received /reset_pending from user {message.from_user.id}")
+        try:
+            config = Config()
+            admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
+            if not admin_ids:
+                logger.error("No admin IDs configured in ADMIN_IDS")
+                await message.reply("Ошибка: список администраторов пуст.")
+                return
+            if str(message.from_user.id) not in admin_ids:
+                logger.warning(f"Access denied for user {message.from_user.id}")
+                await message.reply("Доступ запрещён.")
+                return
+            db = DBManager()
+            pending_users = db.get_pending_users()
+            if not pending_users:
+                await message.reply("Нет пользователей с ожидающими заявками.")
+                db.close()
+                return
+            for user in pending_users:
+                db.delete_user(user.id)
+                logger.info(f"Deleted pending user {user.id}")
+            await message.reply(f"Удалено {len(pending_users)} пользователей с ожидающими заявками.")
+            db.close()
+        except Exception as e:
+            logger.error(f"Error in reset_pending_command: {e}")
+            await message.reply("Произошла ошибка. Попробуйте позже.")
+
     @dp.callback_query_handler(lambda c: c.data == 'moderate')
     async def moderate_callback(callback: types.CallbackQuery):
         logger.info(f"Received moderate callback from admin {callback.from_user.id}")

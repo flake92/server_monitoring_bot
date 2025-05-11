@@ -53,6 +53,13 @@ def register_handlers(dp: Dispatcher):
                     else:
                         logger.warning("No admin IDs configured in ADMIN_IDS")
                     await message.reply("Заявка на регистрацию отправлена. Ожидайте одобрения администратора.")
+            elif user.status == 'pending' and is_admin:
+                db.update_user_status(message.from_user.id, 'approved')
+                logger.info(f"Updated user {message.from_user.id} from pending to approved as admin")
+                await message.reply(
+                    "Добро пожаловать, администратор! Ваш статус обновлён. Используйте /admin для доступа к панели.",
+                    reply_markup=get_main_menu()
+                )
             elif user.status == 'pending':
                 await message.reply("Ваша заявка на рассмотрении.")
             elif user.status == 'approved':

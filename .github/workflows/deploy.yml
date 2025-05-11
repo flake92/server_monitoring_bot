@@ -115,6 +115,12 @@ jobs:
               unset PGPASSWORD
               touch /home/$SERVER_USER/server_monitoring_bot/.db_initialized
             fi
+            echo "Checking database for pending users"
+            export PGPASSWORD="${{ secrets.DB_PASSWORD }}"
+            psql -U monitor_user -d server_monitoring -h localhost -p 5432 -c "SELECT user_id, username, status FROM users WHERE status = 'pending';" || {
+              echo "Failed to query pending users"; exit 1;
+            }
+            unset PGPASSWORD
             echo "Checking Python syntax"
             for file in *.py config/*.py handlers/*.py database/*.py services/*.py utils/*.py; do
               if [ -f "\$file" ]; then
