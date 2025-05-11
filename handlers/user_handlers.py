@@ -26,6 +26,7 @@ def register_handlers(dp: Dispatcher):
             user = db.get_user(message.from_user.id)
             config = Config()
             admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
+            logger.info(f"Parsed admin_ids: {admin_ids}")
             is_admin = str(message.from_user.id) in admin_ids
 
             if user is None:
@@ -47,11 +48,22 @@ def register_handlers(dp: Dispatcher):
                                     f"Новая заявка на регистрацию:\n"
                                     f"Пользователь: @{message.from_user.username or 'unknown'} (ID: {message.from_user.id})"
                                 )
-                                logger.info(f"Notified admin {admin_id} about new user {message.from_user.id}")
+                                logger.info(f"Successfully notified admin {admin_id} about new user {message.from_user.id}")
                             except Exception as e:
                                 logger.error(f"Failed to notify admin {admin_id}: {e}")
+                                # Попытка уведомить других админов об ошибке
+                                for fallback_admin_id in [aid for aid in admin_ids if aid != admin_id]:
+                                    try:
+                                        await message.bot.send_message(
+                                            fallback_admin_id,
+                                            f"Ошибка: не удалось уведомить админа {admin_id} о новой заявке (ID: {message.from_user.id}). Причина: {str(e)}"
+                                        )
+                                        logger.info(f"Notified fallback admin {fallback_admin_id} about notification failure")
+                                    except Exception as fe:
+                                        logger.error(f"Failed to notify fallback admin {fallback_admin_id}: {fe}")
                     else:
-                        logger.warning("No admin IDs configured in ADMIN_IDS")
+                        logger.error("No admin IDs configured in ADMIN_IDS, cannot send notifications")
+                        # Логируем проблему, но не прерываем выполнение
                     await message.reply("Заявка на регистрацию отправлена. Ожидайте одобрения администратора.")
             elif user.status == 'pending' and is_admin:
                 db.update_user_status(message.from_user.id, 'approved')
@@ -83,8 +95,44 @@ def register_handlers(dp: Dispatcher):
             "/edit_server - Редактировать сервер\n"
             "/delete_server - Удалить сервер\n"
             "/check_servers - Проверить статус серверов\n"
-            "/admin - Админ-панель (для администраторов)"
+            "/admin - Админ-панель (для администраторов)\n"
+            "/debug_notify - Проверить уведомления (для администраторов)"
         )
+
+    @dp.message_handler(commands=['debug_notify'])
+    async def debug_notify_command(message: Message):
+        logger.info(f"Received /debug_notify from user {message.from_user.id}")
+        try:
+            config = Config()
+            admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
+            if not admin_ids:
+                logger.error("No admin IDs configured in ADMIN_IDS")
+                await message.reply("Ошибка: список администраторов пуст.")
+                return
+            if str(message.from_user.id) not in admin_ids:
+                logger.warning(f"Access denied for user {message.from_user.id}")
+                await message.reply("Доступ запрещён.")
+                return
+            if admin_ids:
+                for admin_id in admin_ids:
+                    try:
+                        await message.bot.send_message(
+                            admin_id,
+                            f"Тестовое уведомление от бота:\n"
+                            f"Отправлено от админа ID: {message.from_user.id}\n"
+                            f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        )
+                        logger.info(f"Sent test notification to admin {admin_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to send test notification to admin {admin_id}: {e}")
+                        await message.reply(f"Ошибка при отправке тестового уведомления админу {admin_id}: {str(e)}")
+                await message.reply("Тестовые уведомления отправлены всем администраторам.")
+            else:
+                logger.error("No admin IDs configured for debug_notify")
+                await message.reply("Ошибка: список администраторов пуст.")
+        except Exception as e:
+            logger.error(f"Error in debug_notify_command: {e}")
+            await message.reply("Произошла ошибка. Попробуйте позже.")
 
     @dp.message_handler(commands=['add_server'])
     async def add_server_command(message: Message):

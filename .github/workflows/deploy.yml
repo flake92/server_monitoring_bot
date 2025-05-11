@@ -101,8 +101,14 @@ jobs:
             echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
             echo "ADMIN_IDS=${{ secrets.ADMIN_IDS }}" >> .env
             chmod 600 .env
-            echo ".env contents:"
-            cat .env
+            echo ".env contents (masked):"
+            cat .env | grep -v "BOT_TOKEN=\|DB_PASSWORD=" | sed "s/ADMIN_IDS=.*/ADMIN_IDS=<masked>/" || {
+              echo "Failed to read .env"; exit 1;
+            }
+            echo "Checking ADMIN_IDS in .env"
+            grep -q "ADMIN_IDS=" .env || {
+              echo "ADMIN_IDS not found in .env"; exit 1;
+            }
             echo "Initializing database"
             if [ ! -f "/home/$SERVER_USER/server_monitoring_bot/.db_initialized" ]; then
               if [ ! -f "database/schema.sql" ]; then

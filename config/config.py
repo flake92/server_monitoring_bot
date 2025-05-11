@@ -21,6 +21,7 @@ class Config:
             logger.error("DB_PASSWORD is not set in .env")
             raise ValueError("DB_PASSWORD is required")
         self.admin_ids = os.getenv('ADMIN_IDS', '')
+        logger.info(f"Loaded ADMIN_IDS: {'set' if self.admin_ids else 'empty'}")
         if not self.admin_ids:
             logger.warning("ADMIN_IDS is not set in .env, no administrators configured")
         self.monitoring_interval = 60  # Секунды
