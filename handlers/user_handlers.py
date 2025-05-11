@@ -574,7 +574,13 @@ async def add_server_command(message: Message):
         logger.error(f"Error in add_server_command: {e}")
         await message.reply("Произошла ошибка. Попробуйте позже.")
 
-    await handle_menu_commands(message)
+async def add_server_command(message: Message):
+    """Обработчик команды добавления сервера.
+
+    Args:
+        message (Message): Входящее сообщение
+    """
+    logger.info(f"Received /add_server from user {message.from_user.id}")
     try:
         db = DBManager()
         user = db.get_user(message.from_user.id)
