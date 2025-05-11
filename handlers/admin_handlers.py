@@ -12,7 +12,13 @@ def register_handlers(dp: Dispatcher):
         logger.info(f"Received /admin from user {message.from_user.id}")
         try:
             config = Config()
-            if str(message.from_user.id) not in config.admin_ids.split(','):
+            admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
+            if not admin_ids:
+                logger.error("No admin IDs configured in ADMIN_IDS")
+                await message.reply("Ошибка: список администраторов пуст.")
+                return
+            if str(message.from_user.id) not in admin_ids:
+                logger.warning(f"Access denied for user {message.from_user.id}")
                 await message.reply("Доступ запрещён.")
                 return
             keyboard = InlineKeyboardMarkup()
@@ -30,6 +36,7 @@ def register_handlers(dp: Dispatcher):
         try:
             db = DBManager()
             pending_users = db.get_pending_users()
+            logger.info(f"Found {len(pending_users)} pending users")
             if not pending_users:
                 await callback.message.reply("Нет заявок на модерацию.")
                 db.close()
@@ -81,6 +88,7 @@ def register_handlers(dp: Dispatcher):
         try:
             db = DBManager()
             users = db.get_approved_users()
+            logger.info(f"Found {len(users)} approved users")
             if not users:
                 await callback.message.reply("Нет одобренных пользователей.")
                 db.close()

@@ -1,6 +1,7 @@
 from aiogram import Dispatcher, types
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from database.db_manager import DBManager
+from config.config import Config
 import logging
 import re
 from utils.logger import setup_logger
@@ -23,16 +24,41 @@ def register_handlers(dp: Dispatcher):
         try:
             db = DBManager()
             user = db.get_user(message.from_user.id)
+            config = Config()
+            admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
+            is_admin = str(message.from_user.id) in admin_ids
+
             if user is None:
-                db.add_user(message.from_user.id, message.from_user.username or "unknown")
-                await message.reply("Заявка на регистрацию отправлена. Ожидайте одобрения администратора.")
+                status = 'approved' if is_admin else 'pending'
+                db.add_user(message.from_user.id, message.from_user.username or "unknown", status)
+                if is_admin:
+                    logger.info(f"User {message.from_user.id} registered as admin with approved status")
+                    await message.reply(
+                        "Добро пожаловать, администратор! Используйте /admin для доступа к панели.",
+                        reply_markup=get_main_menu()
+                    )
+                else:
+                    # Уведомление администраторов о новой заявке
+                    if admin_ids:
+                        for admin_id in admin_ids:
+                            try:
+                                await message.bot.send_message(
+                                    admin_id,
+                                    f"Новая заявка на регистрацию:\n"
+                                    f"Пользователь: @{message.from_user.username or 'unknown'} (ID: {message.from_user.id})"
+                                )
+                                logger.info(f"Notified admin {admin_id} about new user {message.from_user.id}")
+                            except Exception as e:
+                                logger.error(f"Failed to notify admin {admin_id}: {e}")
+                    else:
+                        logger.warning("No admin IDs configured in ADMIN_IDS")
+                    await message.reply("Заявка на регистрацию отправлена. Ожидайте одобрения администратора.")
             elif user.status == 'pending':
                 await message.reply("Ваша заявка на рассмотрении.")
             elif user.status == 'approved':
-                await message.reply(
-                    "Добро пожаловать в бот мониторинга серверов!",
-                    reply_markup=get_main_menu()
-                )
+                welcome_msg = "Добро пожаловать в бот мониторинга серверов!" if not is_admin else \
+                             "Добро пожаловать, администратор! Используйте /admin для доступа к панели."
+                await message.reply(welcome_msg, reply_markup=get_main_menu())
             db.close()
         except Exception as e:
             logger.error(f"Error in start_command: {e}")
@@ -49,7 +75,8 @@ def register_handlers(dp: Dispatcher):
             "/list_servers - Показать список серверов\n"
             "/edit_server - Редактировать сервер\n"
             "/delete_server - Удалить сервер\n"
-            "/check_servers - Проверить статус серверов"
+            "/check_servers - Проверить статус серверов\n"
+            "/admin - Админ-панель (для администраторов)"
         )
 
     @dp.message_handler(commands=['add_server'])

@@ -88,6 +88,10 @@ jobs:
             if [ -z "${{ secrets.BOT_TOKEN }}" ]; then
               echo "BOT_TOKEN secret is empty"; exit 1;
             fi
+            echo "Checking ADMIN_IDS"
+            if [ -z "${{ secrets.ADMIN_IDS }}" ]; then
+              echo "ADMIN_IDS secret is empty"; exit 1;
+            fi
             echo "Creating .env file"
             echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" > .env
             echo "DB_HOST=localhost" >> .env
