@@ -3,14 +3,14 @@ import logging
 import sys
 from pathlib import Path
 from datetime import datetime
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.filters.command import CommandStart
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from config.config import Config
 from handlers import user_handlers, admin_handlers, monitoring_handlers
 from services.monitoring import schedule_monitoring_tasks
+from aiogram.types import Message
 
 # Setup logging
 log_dir = Path(__file__).parent / 'logs'
@@ -32,16 +32,20 @@ class RateLimiter:
     def __init__(self):
         self.rates = {}
 
-    async def __call__(self, handler, event, data):
-        user_id = event.from_user.id if hasattr(event, 'from_user') else None
-        if user_id:
-            now = datetime.now().timestamp()
-            if user_id in self.rates:
-                last_time = self.rates[user_id]
-                if now - last_time < 1:  # 1 second cooldown
-                    await event.answer("Пожалуйста, подождите перед следующей командой.")
-                    return
-            self.rates[user_id] = now
+    async def __call__(self, handler, event: Message, data):
+        if not event.from_user:
+            return await handler(event, data)
+            
+        user_id = event.from_user.id
+        now = datetime.now().timestamp()
+        
+        if user_id in self.rates:
+            last_time = self.rates[user_id]
+            if now - last_time < 1:  # 1 second cooldown
+                await event.answer("Пожалуйста, подождите перед следующей командой.")
+                return
+        
+        self.rates[user_id] = now
         return await handler(event, data)
 
 async def main():
@@ -58,19 +62,18 @@ async def main():
         
         # Initialize bot and dispatcher
         bot = Bot(token=config.bot_token, parse_mode=ParseMode.HTML)
-        storage = MemoryStorage()
-        dp = Dispatcher(storage=storage)
+        dp = Dispatcher(storage=MemoryStorage())
         
         # Add rate limiting
-        dp.message.middleware(RateLimiter())
+        dp.message.outer_middleware(RateLimiter())
         
         # Initialize scheduler
         scheduler = AsyncIOScheduler(timezone="UTC")
         
         # Register handlers
-        user_handlers.register_handlers(dp)
-        admin_handlers.register_handlers(dp)
-        monitoring_handlers.register_handlers(dp)
+        dp.include_router(user_handlers.router)
+        dp.include_router(admin_handlers.router)
+        dp.include_router(monitoring_handlers.router)
         logger.info("Handlers registered")
         
         # Schedule monitoring tasks

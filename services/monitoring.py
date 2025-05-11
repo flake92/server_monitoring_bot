@@ -3,8 +3,10 @@ import logging
 import ping3
 import aiohttp
 import socket
+import dns.resolver
+from aiohttp import ClientTimeout, TCPConnector
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from database.db_manager import DBManager
 from services.notification import send_notification
@@ -20,34 +22,125 @@ class ServerStatus:
     last_checked: datetime
     error_message: Optional[str] = None
     services: Dict[int, bool] = None
+    details: Dict[str, Any] = None
 
 class MonitoringService:
     def __init__(self):
         self.status_history: Dict[int, List[ServerStatus]] = {}
         self.alert_cooldown: Dict[int, datetime] = {}
-
-    async def check_port(self, host: str, port: int, timeout: float = 2.0) -> Tuple[bool, float]:
+        self.session: Optional[aiohttp.ClientSession] = None
+        self.config = Config()
+        
+        # Default settings
+        self.http_timeout = ClientTimeout(total=5, connect=2)
+        self.tcp_timeout = 2.0
+        self.max_retries = 3
+        self.retry_delay = 1.0
+        
+    async def __aenter__(self):
+        self.session = aiohttp.ClientSession(
+            timeout=self.http_timeout,
+            connector=TCPConnector(
+                limit=100,  # Connection pool size
+                ttl_dns_cache=300,  # DNS cache TTL
+                ssl=False  # Disable SSL verification for internal services
+            )
+        )
+        return self
+        
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.session:
+            await self.session.close()
+            
+    async def resolve_dns(self, host: str) -> Optional[str]:
         try:
-            start_time = datetime.now()
-            reader, writer = await asyncio.open_connection(host, port)
-            elapsed = (datetime.now() - start_time).total_seconds()
-            writer.close()
-            await writer.wait_closed()
-            return True, elapsed
-        except Exception:
-            return False, 0.0
+            answers = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: dns.resolver.resolve(host, 'A')
+            )
+            return str(answers[0]) if answers else None
+        except dns.resolver.NXDOMAIN:
+            raise ValueError(f"DNS resolution failed: Domain {host} not found")
+        except dns.resolver.NoAnswer:
+            raise ValueError(f"DNS resolution failed: No DNS records for {host}")
+        except Exception as e:
+            raise ValueError(f"DNS resolution failed: {str(e)}")
 
-    async def check_http(self, url: str, timeout: float = 5.0) -> Tuple[bool, float, Optional[str]]:
-        try:
-            async with aiohttp.ClientSession() as session:
+    async def check_port(self, host: str, port: int, timeout: float = 2.0) -> Tuple[bool, float, Optional[str]]:
+        for attempt in range(self.max_retries):
+            try:
+                # Resolve DNS first
+                ip_address = await self.resolve_dns(host)
+                if not ip_address:
+                    return False, 0.0, f"Could not resolve DNS for {host}"
+                
                 start_time = datetime.now()
-                async with session.get(url, timeout=timeout, allow_redirects=True) as response:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(ip_address, port),
+                    timeout=timeout
+                )
+                elapsed = (datetime.now() - start_time).total_seconds()
+                writer.close()
+                await writer.wait_closed()
+                return True, elapsed, None
+                
+            except asyncio.TimeoutError:
+                error = "Connection timed out"
+            except ConnectionRefusedError:
+                error = "Connection refused"
+            except OSError as e:
+                error = f"Network error: {str(e)}"
+            except Exception as e:
+                error = f"Unexpected error: {str(e)}"
+                
+            if attempt < self.max_retries - 1:
+                await asyncio.sleep(self.retry_delay)
+            else:
+                return False, 0.0, error
+
+    async def check_http(self, url: str, timeout: Optional[float] = None) -> Tuple[bool, float, Optional[str]]:
+        if timeout:
+            timeout = ClientTimeout(total=timeout)
+        else:
+            timeout = self.http_timeout
+            
+        for attempt in range(self.max_retries):
+            try:
+                if not self.session:
+                    raise RuntimeError("HTTP client session not initialized")
+                    
+                start_time = datetime.now()
+                async with self.session.get(url, timeout=timeout, allow_redirects=True) as response:
                     elapsed = (datetime.now() - start_time).total_seconds()
-                    return response.status < 400, elapsed, None
-        except asyncio.TimeoutError:
-            return False, 0.0, "Timeout"
-        except aiohttp.ClientError as e:
-            return False, 0.0, str(e)
+                    
+                    # Get response details for better diagnostics
+                    status = response.status
+                    headers = dict(response.headers)
+                    content_type = headers.get('content-type', 'unknown')
+                    server = headers.get('server', 'unknown')
+                    
+                    details = {
+                        'status_code': status,
+                        'content_type': content_type,
+                        'server': server,
+                        'headers': headers
+                    }
+                    
+                    if 200 <= status < 400:
+                        return True, elapsed, None, details
+                    else:
+                        return False, elapsed, f"HTTP {status}", details
+                        
+            except asyncio.TimeoutError:
+                error = "Connection timed out"
+            except aiohttp.ClientError as e:
+                error = f"HTTP error: {str(e)}"
+            except Exception as e:
+                error = f"Unexpected error: {str(e)}"
+                
+            if attempt < self.max_retries - 1:
+                await asyncio.sleep(self.retry_delay)
+            else:
+                return False, 0.0, error, None
 
     async def check_server(self, server) -> ServerStatus:
         services = {}

@@ -1,14 +1,15 @@
-from aiogram import Dispatcher
+from aiogram import Router, F
 from aiogram.types import Message
+from aiogram.filters import Command
 from database.db_manager import DBManager
 from services.monitoring import check_server
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
+router = Router()
 
-def register_handlers(dp: Dispatcher):
-    @dp.message_handler(commands=['monitor'])
-    async def monitor_command(message: Message):
+@router.message(Command("monitor"))
+async def monitor_command(message: Message):
         logger.info(f"Received /monitor from user {message.from_user.id}")
         try:
             db = DBManager()

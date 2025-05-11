@@ -241,11 +241,68 @@ nano .env  # Редактируйте настройки
 python manage.py migrate
 ```
 
-### 🚀 Запуск приложения
+## 🚀 Установка и запуск
+
+### 📋 Предварительные требования
+
+- Python 3.11 или выше
+- PostgreSQL 12 или выше
+- Git для клонирования репозитория
+
+### 🔧 Установка
+
+1. Клонируйте репозиторий:
+```bash
+git clone https://github.com/yourusername/server_monitoring_bot.git
+cd server_monitoring_bot
+```
+
+2. Создайте виртуальное окружение и активируйте его:
+```bash
+python -m venv venv
+source venv/bin/activate  # Для Linux/macOS
+venv\Scripts\activate    # Для Windows
+```
+
+3. Установите зависимости:
+```bash
+pip install -r requirements.txt
+```
+
+4. Настройте базу данных:
+```bash
+psql -U postgres
+CREATE DATABASE server_monitoring;
+CREATE USER monitor_user WITH PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE server_monitoring TO monitor_user;
+```
+
+5. Скопируйте файл с примером настроек и отредактируйте его:
+```bash
+cp .env.example .env
+# Отредактируйте .env файл, указав ваши настройки
+```
+
+### 🚀 Запуск
 
 1. Запуск в режиме разработки:
 ```bash
 python main.py
+```
+
+2. Запуск через systemd (для Linux):
+```bash
+sudo cp systemd/server_monitoring_bot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable server_monitoring_bot
+sudo systemctl start server_monitoring_bot
+```
+
+3. Проверка статуса:
+```bash
+sudo systemctl status server_monitoring_bot  # Для systemd
+# или
+tail -f logs/bot.log                        # Просмотр логов
 ```
 
 2. Запуск в продакшене (systemd):

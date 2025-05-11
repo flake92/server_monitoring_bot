@@ -1,42 +1,120 @@
 import psycopg2
 from psycopg2.extras import NamedTupleCursor, Json
+from psycopg2.pool import SimpleConnectionPool
 import logging
 from datetime import datetime, date
 from typing import List, Dict, Optional
 from config.config import Config
 from utils.logger import setup_logger
+from contextlib import contextmanager
 
 logger = setup_logger(__name__)
 
 class DBManager:
+    """Менеджер базы данных с поддержкой пула соединений"""
+    _pool = None
+    
     def __init__(self):
+        """Инициализация менеджера базы данных"""
         self.config = Config()
-        self.conn = None
+        self.conn = None  # Текущее соединение
         self.cursor = None
-        self.connect()
-
-    def connect(self):
+        self._ensure_pool()  # Настройка пула соединений
+    
+    def _ensure_pool(self):
+        """Настройка пула соединений с базой данных"""
+        if DBManager._pool is None:
+            try:
+                DBManager._pool = SimpleConnectionPool(
+                    minconn=1,
+                    maxconn=10,
+                    host=self.config.db_host,
+                    port=self.config.db_port,
+                    database=self.config.db_name,
+                    user=self.config.db_user,
+                    password=self.config.db_password
+                )
+                logger.info("Пул соединений инициализирован")
+            except Exception as e:
+                logger.error(f"Ошибка инициализации пула соединений: {e}")
+                raise
+    
+    def __enter__(self):
+        """Получение соединения из пула при входе в контекст"""
         try:
-            self.conn = psycopg2.connect(
-                host=self.config.db_host,
-                port=self.config.db_port,
-                database=self.config.db_name,
-                user=self.config.db_user,
-                password=self.config.db_password,
-                cursor_factory=NamedTupleCursor
-            )
-            self.cursor = self.conn.cursor()
-            logger.info("Database connection established")
+            self._connect()
+            return self
         except Exception as e:
-            logger.error(f"Error connecting to database: {e}")
+            logger.error(f"Ошибка получения соединения из пула: {e}")
+            raise
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Возвращение соединения в пул при выходе из контекста"""
+        self.close()
+
+    @contextmanager
+    def get_cursor(self):
+        """Контекстный менеджер для работы с курсором"""
+        try:
+            self._connect()
+            yield self.cursor
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise e
+        finally:
+            self.close()
+
+    def _connect(self):
+        """Установка соединения с базой данных"""
+        try:
+            if self.conn is None or self.conn.closed:
+                self.conn = DBManager._pool.getconn()
+                self.conn.set_session(autocommit=False)
+                logger.info("Получено соединение из пула")
+            if self.cursor is None or self.cursor.closed:
+                self.cursor = self.conn.cursor(cursor_factory=NamedTupleCursor)
+        except Exception as e:
+            logger.error(f"Ошибка подключения к базе данных: {e}")
+            self.close()
             raise
 
     def close(self):
-        if self.cursor:
-            self.cursor.close()
-        if self.conn:
-            self.conn.close()
-            logger.info("Database connection closed")
+        """Возвращение соединения в пул"""
+        try:
+            if self.cursor and not self.cursor.closed:
+                self.cursor.close()
+                self.cursor = None
+            if self.conn and not self.conn.closed:
+                DBManager._pool.putconn(self.conn)
+                self.conn = None
+                logger.info("Соединение возвращено в пул")
+        except Exception as e:
+            logger.error(f"Ошибка возврата соединения в пул: {e}")
+
+    def ensure_connection(self):
+        """Обеспечение активности соединения с базой данных"""
+        try:
+            if self.conn is None or self.conn.closed or self.cursor is None or self.cursor.closed:
+                self._connect()
+        except Exception as e:
+            logger.error(f"Ошибка обеспечения соединения с базой данных: {e}")
+            raise
+
+    def begin_transaction(self):
+        """Начало новой транзакции"""
+        self.ensure_connection()
+        self.conn.begin()
+
+    def commit(self):
+        """Фиксация текущей транзакции"""
+        if self.conn and not self.conn.closed:
+            self.conn.commit()
+
+    def rollback(self):
+        """Отмена текущей транзакции"""
+        if self.conn and not self.conn.closed:
+            self.conn.rollback()
 
     def add_user(self, user_id: int, username: str, status: str):
         try:
@@ -47,17 +125,17 @@ class DBManager:
                 (user_id, username, status)
             )
             user_id = self.cursor.fetchone()[0]
-            # Create default notification settings
+            # Создание настроек уведомлений по умолчанию
             self.cursor.execute(
                 """INSERT INTO notification_settings (user_id)
                 VALUES (%s)""",
                 (user_id,)
             )
             self.conn.commit()
-            logger.info(f"Added user {user_id} with status {status}")
+            logger.info(f"Добавлен пользователь {user_id} со статусом {status}")
             return user_id
         except Exception as e:
-            logger.error(f"Error in add_user: {e}")
+            logger.error(f"Ошибка добавления пользователя: {e}")
             self.conn.rollback()
             raise
 
@@ -72,7 +150,7 @@ class DBManager:
             )
             return self.cursor.fetchone()
         except Exception as e:
-            logger.error(f"Error in get_user: {e}")
+            logger.error(f"Ошибка получения пользователя: {e}")
             raise
 
     def update_user_status(self, user_id: int, status: str):

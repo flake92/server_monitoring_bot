@@ -1,0 +1,34 @@
+[Unit]
+Description=Telegram Server Monitoring Bot
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=deployer
+Group=deployer
+WorkingDirectory=/home/deployer/server_monitoring_bot
+Environment=PYTHONPATH=/home/deployer/server_monitoring_bot
+Environment=VIRTUAL_ENV=/home/deployer/server_monitoring_bot/venv
+Environment=PATH=/home/deployer/server_monitoring_bot/venv/bin:$PATH
+
+# Загрузка переменных окружения из файла
+EnvironmentFile=/home/deployer/server_monitoring_bot/.env
+
+ExecStart=/home/deployer/server_monitoring_bot/venv/bin/python main.py
+
+# Автоматический перезапуск при падении
+Restart=always
+RestartSec=10
+
+# Ограничение ресурсов
+CPUQuota=50%
+MemoryLimit=512M
+LimitNOFILE=65535
+
+# Настройка логирования
+StandardOutput=append:/var/log/server_monitoring_bot/bot.log
+StandardError=append:/var/log/server_monitoring_bot/error.log
+
+[Install]
+WantedBy=multi-user.target
