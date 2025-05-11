@@ -1,5 +1,7 @@
 from aiogram import Dispatcher, types
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.dispatcher import FSMContext
 from database.db_manager import DBManager
 from config.config import Config
 import logging
@@ -27,6 +29,10 @@ def get_admin_menu():
     keyboard.add(KeyboardButton("Тест уведомлений"))
     keyboard.add(KeyboardButton("Назад"))
     return keyboard
+
+class AdminState(StatesGroup):
+    waiting_for_approve_id = State()
+    waiting_for_delete_id = State()
 
 def register_handlers(dp: Dispatcher):
     @dp.message_handler(commands=['start'])
@@ -557,7 +563,8 @@ def register_handlers(dp: Dispatcher):
         finally:
             dp.message_handlers.unregister(process_check_server)
 
-    async def process_approve_user_id(message: Message):
+    @dp.message_handler(state=AdminState.waiting_for_approve_id)
+    async def process_approve_user_id(message: Message, state: FSMContext):
         logger.info(f"Processing approve user ID from user {message.from_user.id}")
         try:
             config = Config()
@@ -565,11 +572,13 @@ def register_handlers(dp: Dispatcher):
             if str(message.from_user.id) not in admin_ids:
                 logger.warning(f"Access denied for user {message.from_user.id}")
                 await message.reply("Доступ запрещён.")
+                await state.finish()
                 return
             try:
                 user_id = int(message.text.strip())
             except ValueError:
                 await message.reply("ID пользователя должен быть числом.", reply_markup=get_admin_menu())
+                await state.finish()
                 return
             db = DBManager()
             user = db.get_user(user_id)
@@ -598,9 +607,10 @@ def register_handlers(dp: Dispatcher):
             logger.error(f"Error in process_approve_user_id: {e}")
             await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_admin_menu())
         finally:
-            dp.message_handlers.unregister(process_approve_user_id)
+            await state.finish()
 
-    async def process_delete_user_id(message: Message):
+    @dp.message_handler(state=AdminState.waiting_for_delete_id)
+    async def process_delete_user_id(message: Message, state: FSMContext):
         logger.info(f"Processing delete user ID from user {message.from_user.id}")
         try:
             config = Config()
@@ -608,11 +618,13 @@ def register_handlers(dp: Dispatcher):
             if str(message.from_user.id) not in admin_ids:
                 logger.warning(f"Access denied for user {message.from_user.id}")
                 await message.reply("Доступ запрещён.")
+                await state.finish()
                 return
             try:
                 user_id = int(message.text.strip())
             except ValueError:
                 await message.reply("ID пользователя должен быть числом.", reply_markup=get_admin_menu())
+                await state.finish()
                 return
             db = DBManager()
             user = db.get_user(user_id)
@@ -626,10 +638,10 @@ def register_handlers(dp: Dispatcher):
             logger.error(f"Error in process_delete_user_id: {e}")
             await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_admin_menu())
         finally:
-            dp.message_handlers.unregister(process_delete_user_id)
+            await state.finish()
 
     @dp.message_handler(content_types=['text'])
-    async def text_menu_handler(message: Message):
+    async def text_menu_handler(message: Message, state: FSMContext):
         logger.info(f"Received text menu command from user {message.from_user.id}: {message.text}")
         try:
             config = Config()
@@ -651,16 +663,18 @@ def register_handlers(dp: Dispatcher):
                     await list_pending_users_command(message)
                 elif message.text == "Одобрить пользователя":
                     await message.reply("Введите ID пользователя для одобрения.", reply_markup=get_admin_menu())
-                    dp.register_message_handler(process_approve_user_id, content_types=['text'])
+                    await AdminState.waiting_for_approve_id.set()
                 elif message.text == "Удалить пользователя":
                     await message.reply("Введите ID пользователя для удаления.", reply_markup=get_admin_menu())
-                    dp.register_message_handler(process_delete_user_id, content_types=['text'])
+                    await AdminState.waiting_for_delete_id.set()
                 elif message.text == "Повторно отправить уведомления":
                     await resend_notification_command(message)
                 elif message.text == "Тест уведомлений":
                     await debug_notify_command(message)
                 elif message.text == "Назад":
                     await message.reply("Возвращение в главное меню.", reply_markup=get_main_menu())
+                    await state.finish()
         except Exception as e:
             logger.error(f"Error in text_menu_handler: {e}")
             await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_main_menu())
+            await state.finish()
