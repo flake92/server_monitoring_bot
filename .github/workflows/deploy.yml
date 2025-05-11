@@ -121,6 +121,12 @@ jobs:
               unset PGPASSWORD
               touch /home/$SERVER_USER/server_monitoring_bot/.db_initialized
             fi
+            echo "Applying database migration for servers table"
+            export PGPASSWORD="${{ secrets.DB_PASSWORD }}"
+            psql -U monitor_user -d server_monitoring -h localhost -p 5432 -c "ALTER TABLE servers ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'unknown';" || {
+              echo "Failed to apply migration for servers table"; exit 1;
+            }
+            unset PGPASSWORD
             echo "Checking database for pending users"
             export PGPASSWORD="${{ secrets.DB_PASSWORD }}"
             psql -U monitor_user -d server_monitoring -h localhost -p 5432 -c "SELECT user_id, username, status FROM users WHERE status = 'pending';" || {

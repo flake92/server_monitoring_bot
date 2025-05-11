@@ -4,6 +4,7 @@ from database.db_manager import DBManager
 from config.config import Config
 import logging
 import re
+from datetime import datetime
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -30,6 +31,7 @@ def register_handlers(dp: Dispatcher):
             is_admin = str(message.from_user.id) in admin_ids
 
             if user is None:
+                logger.info(f"Adding new user {message.from_user.id} with status {'approved' if is_admin else 'pending'}")
                 status = 'approved' if is_admin else 'pending'
                 db.add_user(message.from_user.id, message.from_user.username or "unknown", status)
                 if is_admin:
@@ -40,6 +42,7 @@ def register_handlers(dp: Dispatcher):
                     )
                 else:
                     # Уведомление администраторов о новой заявке
+                    logger.info(f"Attempting to notify admins about new user {message.from_user.id}")
                     if admin_ids:
                         for admin_id in admin_ids:
                             try:
@@ -63,11 +66,11 @@ def register_handlers(dp: Dispatcher):
                                         logger.error(f"Failed to notify fallback admin {fallback_admin_id}: {fe}")
                     else:
                         logger.error("No admin IDs configured in ADMIN_IDS, cannot send notifications")
-                        # Логируем проблему, но не прерываем выполнение
                     await message.reply("Заявка на регистрацию отправлена. Ожидайте одобрения администратора.")
             elif user.status == 'pending' and is_admin:
+                logger.info(f"Updating user {message.from_user.id} from pending to approved")
                 db.update_user_status(message.from_user.id, 'approved')
-                logger.info(f"Updated user {message.from_user.id} from pending to approved as admin")
+                logger.info(f"Updated user {message.from_user.id} to approved as admin")
                 await message.reply(
                     "Добро пожаловать, администратор! Ваш статус обновлён. Используйте /admin для доступа к панели.",
                     reply_markup=get_main_menu()
@@ -105,6 +108,7 @@ def register_handlers(dp: Dispatcher):
         try:
             config = Config()
             admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
+            logger.info(f"Parsed admin_ids for debug_notify: {admin_ids}")
             if not admin_ids:
                 logger.error("No admin IDs configured in ADMIN_IDS")
                 await message.reply("Ошибка: список администраторов пуст.")
