@@ -1,5 +1,6 @@
 from aiogram import Dispatcher, types
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.filters import RegexpCommandsFilter
 from database.db_manager import DBManager
 from config.config import Config
 import logging
@@ -8,6 +9,9 @@ from datetime import datetime, timedelta
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+# Словарь для отслеживания ожидаемого ввода ID
+expected_id_input = {}
 
 def get_main_menu():
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
@@ -131,6 +135,8 @@ def register_handlers(dp: Dispatcher):
                 logger.warning(f"Access denied for user {message.from_user.id}")
                 await message.reply("Доступ запрещён.")
                 return
+            # Очистить ожидаемый ввод, если был
+            expected_id_input.pop(str(message.from_user.id), None)
             await message.reply("Админ-панель:", reply_markup=get_admin_menu())
         except Exception as e:
             logger.error(f"Error in admin_command: {e}")
@@ -343,9 +349,14 @@ def register_handlers(dp: Dispatcher):
         try:
             config = Config()
             admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
-            if str(message.from_user.id) not in admin_ids:
+            user_id_str = str(message.from_user.id)
+            if user_id_str not in admin_ids:
                 logger.warning(f"Access denied for user {message.from_user.id}")
                 await message.reply("Доступ запрещён.")
+                return
+            if user_id_str not in expected_id_input or expected_id_input[user_id_str] != 'approve':
+                logger.warning(f"Unexpected approve ID input from user {message.from_user.id}")
+                await message.reply("Пожалуйста, выберите 'Одобрить пользователя' перед вводом ID.", reply_markup=get_admin_menu())
                 return
             try:
                 user_id = int(message.text.strip())
@@ -381,6 +392,7 @@ def register_handlers(dp: Dispatcher):
             await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_admin_menu())
         finally:
             logger.info(f"Unregistering approve user ID handler for user {message.from_user.id}")
+            expected_id_input.pop(str(message.from_user.id), None)
             dp.message_handlers.unregister(process_approve_user_id)
 
     async def process_delete_user_id(message: Message):
@@ -388,9 +400,14 @@ def register_handlers(dp: Dispatcher):
         try:
             config = Config()
             admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
-            if str(message.from_user.id) not in admin_ids:
+            user_id_str = str(message.from_user.id)
+            if user_id_str not in admin_ids:
                 logger.warning(f"Access denied for user {message.from_user.id}")
                 await message.reply("Доступ запрещён.")
+                return
+            if user_id_str not in expected_id_input or expected_id_input[user_id_str] != 'delete':
+                logger.warning(f"Unexpected delete ID input from user {message.from_user.id}")
+                await message.reply("Пожалуйста, выберите 'Удалить пользователя' перед вводом ID.", reply_markup=get_admin_menu())
                 return
             try:
                 user_id = int(message.text.strip())
@@ -411,6 +428,7 @@ def register_handlers(dp: Dispatcher):
             await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_admin_menu())
         finally:
             logger.info(f"Unregistering delete user ID handler for user {message.from_user.id}")
+            expected_id_input.pop(str(message.from_user.id), None)
             dp.message_handlers.unregister(process_delete_user_id)
 
     @dp.message_handler(commands=['add_server'])
@@ -633,43 +651,64 @@ def register_handlers(dp: Dispatcher):
             config = Config()
             admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
             is_admin = str(message.from_user.id) in admin_ids
+            user_id_str = str(message.from_user.id)
 
-            # Игнорировать числовые сообщения, если ожидается ID
-            if is_admin and message.text.strip().isdigit():
-                logger.warning(f"Numeric input {message.text} ignored in text_menu_handler; likely expecting ID")
-                await message.reply(
-                    "Пожалуйста, выберите действие из меню или введите ID после выбора 'Одобрить пользователя' или 'Удалить пользователя'.",
-                    reply_markup=get_admin_menu()
-                )
+            # Пропускать числовые сообщения, если ожидается ID
+            if is_admin and message.text.strip().isdigit() and user_id_str in expected_id_input:
+                logger.info(f"Numeric input {message.text} passed to expected ID handler for user {message.from_user.id}")
                 return
 
             if message.text == "Добавить сервер":
+                expected_id_input.pop(user_id_str, None)
                 await add_server_command(message)
             elif message.text == "Мои серверы":
+                expected_id_input.pop(user_id_str, None)
                 await list_servers_command(message)
             elif message.text == "Проверить серверы":
+                expected_id_input.pop(user_id_str, None)
                 await check_servers_command(message)
             elif message.text == "Редактировать сервер":
+                expected_id_input.pop(user_id_str, None)
                 await edit_server_command(message)
             elif message.text == "Удалить сервер":
+                expected_id_input.pop(user_id_str, None)
                 await delete_server_command(message)
             elif is_admin:
                 if message.text == "Список ожидающих пользователей":
+                    expected_id_input.pop(user_id_str, None)
                     await list_pending_users_command(message)
                 elif message.text == "Одобрить пользователя":
                     logger.info(f"Registering approve user ID handler for user {message.from_user.id}")
+                    expected_id_input[user_id_str] = 'approve'
                     await message.reply("Введите ID пользователя для одобрения.", reply_markup=get_admin_menu())
-                    dp.register_message_handler(process_approve_user_id, content_types=['text'])
+                    dp.register_message_handler(
+                        process_approve_user_id,
+                        content_types=['text'],
+                        regexp_commands=[r'^\d+$'],
+                        user_id=message.from_user.id
+                    )
                 elif message.text == "Удалить пользователя":
                     logger.info(f"Registering delete user ID handler for user {message.from_user.id}")
+                    expected_id_input[user_id_str] = 'delete'
                     await message.reply("Введите ID пользователя для удаления.", reply_markup=get_admin_menu())
-                    dp.register_message_handler(process_delete_user_id, content_types=['text'])
+                    dp.register_message_handler(
+                        process_delete_user_id,
+                        content_types=['text'],
+                        regexp_commands=[r'^\d+$'],
+                        user_id=message.from_user.id
+                    )
                 elif message.text == "Повторно отправить уведомления":
+                    expected_id_input.pop(user_id_str, None)
                     await resend_notification_command(message)
                 elif message.text == "Тест уведомлений":
+                    expected_id_input.pop(user_id_str, None)
                     await debug_notify_command(message)
                 elif message.text == "Назад":
+                    expected_id_input.pop(user_id_str, None)
                     await message.reply("Возвращение в главное меню.", reply_markup=get_main_menu())
+            else:
+                await message.reply("Пожалуйста, выберите действие из меню.", reply_markup=get_main_menu())
         except Exception as e:
             logger.error(f"Error in text_menu_handler: {e}")
             await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_main_menu())
+            expected_id_input.pop(str(message.from_user.id), None)
