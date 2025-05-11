@@ -1,35 +1,50 @@
-import logging
-from aiogram import Bot, Dispatcher, executor
-from dotenv import load_dotenv
-import os
 import asyncio
-from handlers import user_handlers, admin_handlers, monitoring_handlers
-from services.monitoring import start_monitoring
+import logging
+import sys
+from aiogram import Bot, Dispatcher
 from config.config import Config
-from utils.logger import setup_logger
+from handlers import user_handlers, admin_handlers, monitoring_handlers
 
-# Настройка логирования
-logger = setup_logger(__name__)
+# Временный логгер для диагностики
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("/home/deployer/server_monitoring_bot/debug.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
-# Загрузка конфигурации
-load_dotenv()
-config = Config()
-
-# Инициализация бота
-bot = Bot(token=config.bot_token)
-dp = Dispatcher(bot)
-
-# Регистрация обработчиков
-user_handlers.register_handlers(dp)
-admin_handlers.register_handlers(dp)
-monitoring_handlers.register_handlers(dp)
-
-async def on_startup(_):
-    logger.info("Starting bot")
-    asyncio.create_task(start_monitoring(bot, config))
-
-if __name__ == '__main__':
+async def main():
     try:
-        executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
+        logger.info("Starting bot initialization")
+        config = Config()
+        logger.info("Config loaded successfully")
+        
+        logger.info(f"BOT_TOKEN: {'<hidden>' if config.bot_token else 'MISSING'}")
+        logger.info(f"ADMIN_IDS: {config.admin_ids}")
+        
+        bot = Bot(token=config.bot_token)
+        logger.info("Bot initialized")
+        
+        dp = Dispatcher(bot)
+        logger.info("Dispatcher initialized")
+        
+        user_handlers.register_handlers(dp)
+        admin_handlers.register_handlers(dp)
+        monitoring_handlers.register_handlers(dp)
+        logger.info("Handlers registered")
+        
+        logger.info("Starting polling")
+        await dp.start_polling()
     except Exception as e:
-        logger.error(f"Bot failed to start: {e}")
+        logger.error(f"Failed to start bot: {str(e)}", exc_info=True)
+        raise
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        logger.error(f"Main loop failed: {str(e)}", exc_info=True)
+        sys.exit(1)
