@@ -18,6 +18,16 @@ def get_main_menu():
     keyboard.add(KeyboardButton("Удалить сервер"))
     return keyboard
 
+def get_admin_menu():
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.add(KeyboardButton("Список ожидающих пользователей"))
+    keyboard.add(KeyboardButton("Одобрить пользователя"))
+    keyboard.add(KeyboardButton("Удалить пользователя"))
+    keyboard.add(KeyboardButton("Повторно отправить уведомления"))
+    keyboard.add(KeyboardButton("Тест уведомлений"))
+    keyboard.add(KeyboardButton("Назад"))
+    return keyboard
+
 def register_handlers(dp: Dispatcher):
     @dp.message_handler(commands=['start'])
     async def start_command(message: Message):
@@ -104,8 +114,29 @@ def register_handlers(dp: Dispatcher):
             "/debug_notify - Проверить уведомления (для администраторов)\n"
             "/list_pending_users - Показать пользователей с ожидающими заявками (для администраторов)\n"
             "/delete_user - Удалить пользователя (для администраторов)\n"
+            "/approve_user - Одобрить заявку пользователя (для администраторов)\n"
             "/resend_notification - Повторно отправить уведомления о заявках (для администраторов)"
         )
+
+    @dp.message_handler(commands=['admin'])
+    async def admin_command(message: Message):
+        logger.info(f"Received /admin from user {message.from_user.id}")
+        try:
+            config = Config()
+            admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
+            logger.info(f"Parsed admin_ids for admin: {admin_ids}")
+            if not admin_ids:
+                logger.error("No admin IDs configured in ADMIN_IDS")
+                await message.reply("Ошибка: список администраторов пуст.")
+                return
+            if str(message.from_user.id) not in admin_ids:
+                logger.warning(f"Access denied for user {message.from_user.id}")
+                await message.reply("Доступ запрещён.")
+                return
+            await message.reply("Админ-панель:", reply_markup=get_admin_menu())
+        except Exception as e:
+            logger.error(f"Error in admin_command: {e}")
+            await message.reply("Произошла ошибка. Попробуйте позже.")
 
     @dp.message_handler(commands=['debug_notify'])
     async def debug_notify_command(message: Message):
@@ -161,16 +192,16 @@ def register_handlers(dp: Dispatcher):
             db = DBManager()
             pending_users = db.get_pending_users()
             if not pending_users:
-                await message.reply("Нет пользователей с ожидающими заявками.")
+                await message.reply("Нет пользователей с ожидающими заявками.", reply_markup=get_admin_menu())
             else:
                 response = "Пользователи с ожидающими заявками:\n"
                 for user in pending_users:
                     response += f"ID: {user.id}, Username: @{user.username or 'unknown'}, Status: {user.status}\n"
-                await message.reply(response)
+                await message.reply(response, reply_markup=get_admin_menu())
             db.close()
         except Exception as e:
             logger.error(f"Error in list_pending_users_command: {e}")
-            await message.reply("Произошла ошибка. Попробуйте позже.")
+            await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_admin_menu())
 
     @dp.message_handler(commands=['delete_user'])
     async def delete_user_command(message: Message):
@@ -199,14 +230,65 @@ def register_handlers(dp: Dispatcher):
             db = DBManager()
             user = db.get_user(user_id)
             if user is None:
-                await message.reply(f"Пользователь с ID {user_id} не найден.")
+                await message.reply(f"Пользователь с ID {user_id} не найден.", reply_markup=get_admin_menu())
             else:
                 db.delete_user(user_id)
-                await message.reply(f"Пользователь с ID {user_id} удалён.")
+                await message.reply(f"Пользователь с ID {user_id} удалён.", reply_markup=get_admin_menu())
             db.close()
         except Exception as e:
             logger.error(f"Error in delete_user_command: {e}")
-            await message.reply("Произошла ошибка. Попробуйте позже.")
+            await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_admin_menu())
+
+    @dp.message_handler(commands=['approve_user'])
+    async def approve_user_command(message: Message):
+        logger.info(f"Received /approve_user from user {message.from_user.id}")
+        try:
+            config = Config()
+            admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
+            logger.info(f"Parsed admin_ids for approve_user: {admin_ids}")
+            if not admin_ids:
+                logger.error("No admin IDs configured in ADMIN_IDS")
+                await message.reply("Ошибка: список администраторов пуст.")
+                return
+            if str(message.from_user.id) not in admin_ids:
+                logger.warning(f"Access denied for user {message.from_user.id}")
+                await message.reply("Доступ запрещён.")
+                return
+            args = message.get_args()
+            if not args:
+                await message.reply("Укажите ID пользователя. Пример: /approve_user 123456789")
+                return
+            try:
+                user_id = int(args.strip())
+            except ValueError:
+                await message.reply("ID пользователя должен быть числом.")
+                return
+            db = DBManager()
+            user = db.get_user(user_id)
+            if user is None:
+                await message.reply(f"Пользователь с ID {user_id} не найден.", reply_markup=get_admin_menu())
+            elif user.status == 'approved':
+                await message.reply(f"Пользователь с ID {user_id} уже одобрен.", reply_markup=get_admin_menu())
+            else:
+                db.update_user_status(user_id, 'approved')
+                try:
+                    await message.bot.send_message(
+                        user_id,
+                        "Ваша заявка одобрена! Добро пожаловать в бот мониторинга серверов!",
+                        reply_markup=get_main_menu()
+                    )
+                    logger.info(f"Sent approval notification to user {user_id}")
+                except Exception as e:
+                    logger.error(f"Failed to notify user {user_id} about approval: {e}")
+                    await message.reply(
+                        f"Статус пользователя {user_id} обновлён, но не удалось отправить уведомление: {str(e)}",
+                        reply_markup=get_admin_menu()
+                    )
+                await message.reply(f"Пользователь с ID {user_id} одобрен.", reply_markup=get_admin_menu())
+            db.close()
+        except Exception as e:
+            logger.error(f"Error in approve_user_command: {e}")
+            await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_admin_menu())
 
     @dp.message_handler(commands=['resend_notification'])
     async def resend_notification_command(message: Message):
@@ -229,12 +311,15 @@ def register_handlers(dp: Dispatcher):
             cooldown_seconds = 300  # 5 минут
             if last_notification and (current_time - last_notification).total_seconds() < cooldown_seconds:
                 remaining_seconds = int(cooldown_seconds - (current_time - last_notification).total_seconds())
-                await message.reply(f"Подождите {remaining_seconds} секунд перед повторной отправкой уведомлений.")
+                await message.reply(
+                    f"Подождите {remaining_seconds} секунд перед повторной отправкой уведомлений.",
+                    reply_markup=get_admin_menu()
+                )
                 db.close()
                 return
             pending_users = db.get_pending_users()
             if not pending_users:
-                await message.reply("Нет пользователей с ожидающими заявками.")
+                await message.reply("Нет пользователей с ожидающими заявками.", reply_markup=get_admin_menu())
                 db.close()
                 return
             for user in pending_users:
@@ -248,13 +333,16 @@ def register_handlers(dp: Dispatcher):
                         logger.info(f"Sent notification about pending user {user.id} to admin {admin_id}")
                     except Exception as e:
                         logger.error(f"Failed to send notification about user {user.id} to admin {admin_id}: {e}")
-                        await message.reply(f"Ошибка при отправке уведомления админу {admin_id} о пользователе {user.id}: {str(e)}")
+                        await message.reply(
+                            f"Ошибка при отправке уведомления админу {admin_id} о пользователе {user.id}: {str(e)}",
+                            reply_markup=get_admin_menu()
+                        )
             db.update_notification_time(current_time)
-            await message.reply(f"Отправлены уведомления о {len(pending_users)} ожидающих заявках.")
+            await message.reply(f"Отправлены уведомления о {len(pending_users)} ожидающих заявках.", reply_markup=get_admin_menu())
             db.close()
         except Exception as e:
             logger.error(f"Error in resend_notification_command: {e}")
-            await message.reply("Произошла ошибка. Попробуйте позже.")
+            await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_admin_menu())
 
     @dp.message_handler(commands=['add_server'])
     async def add_server_command(message: Message):
@@ -469,10 +557,85 @@ def register_handlers(dp: Dispatcher):
         finally:
             dp.message_handlers.unregister(process_check_server)
 
+    async def process_approve_user_id(message: Message):
+        logger.info(f"Processing approve user ID from user {message.from_user.id}")
+        try:
+            config = Config()
+            admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
+            if str(message.from_user.id) not in admin_ids:
+                logger.warning(f"Access denied for user {message.from_user.id}")
+                await message.reply("Доступ запрещён.")
+                return
+            try:
+                user_id = int(message.text.strip())
+            except ValueError:
+                await message.reply("ID пользователя должен быть числом.", reply_markup=get_admin_menu())
+                return
+            db = DBManager()
+            user = db.get_user(user_id)
+            if user is None:
+                await message.reply(f"Пользователь с ID {user_id} не найден.", reply_markup=get_admin_menu())
+            elif user.status == 'approved':
+                await message.reply(f"Пользователь с ID {user_id} уже одобрен.", reply_markup=get_admin_menu())
+            else:
+                db.update_user_status(user_id, 'approved')
+                try:
+                    await message.bot.send_message(
+                        user_id,
+                        "Ваша заявка одобрена! Добро пожаловать в бот мониторинга серверов!",
+                        reply_markup=get_main_menu()
+                    )
+                    logger.info(f"Sent approval notification to user {user_id}")
+                except Exception as e:
+                    logger.error(f"Failed to notify user {user_id} about approval: {e}")
+                    await message.reply(
+                        f"Статус пользователя {user_id} обновлён, но не удалось отправить уведомление: {str(e)}",
+                        reply_markup=get_admin_menu()
+                    )
+                await message.reply(f"Пользователь с ID {user_id} одобрен.", reply_markup=get_admin_menu())
+            db.close()
+        except Exception as e:
+            logger.error(f"Error in process_approve_user_id: {e}")
+            await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_admin_menu())
+        finally:
+            dp.message_handlers.unregister(process_approve_user_id)
+
+    async def process_delete_user_id(message: Message):
+        logger.info(f"Processing delete user ID from user {message.from_user.id}")
+        try:
+            config = Config()
+            admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
+            if str(message.from_user.id) not in admin_ids:
+                logger.warning(f"Access denied for user {message.from_user.id}")
+                await message.reply("Доступ запрещён.")
+                return
+            try:
+                user_id = int(message.text.strip())
+            except ValueError:
+                await message.reply("ID пользователя должен быть числом.", reply_markup=get_admin_menu())
+                return
+            db = DBManager()
+            user = db.get_user(user_id)
+            if user is None:
+                await message.reply(f"Пользователь с ID {user_id} не найден.", reply_markup=get_admin_menu())
+            else:
+                db.delete_user(user_id)
+                await message.reply(f"Пользователь с ID {user_id} удалён.", reply_markup=get_admin_menu())
+            db.close()
+        except Exception as e:
+            logger.error(f"Error in process_delete_user_id: {e}")
+            await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_admin_menu())
+        finally:
+            dp.message_handlers.unregister(process_delete_user_id)
+
     @dp.message_handler(content_types=['text'])
     async def text_menu_handler(message: Message):
         logger.info(f"Received text menu command from user {message.from_user.id}: {message.text}")
         try:
+            config = Config()
+            admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
+            is_admin = str(message.from_user.id) in admin_ids
+
             if message.text == "Добавить сервер":
                 await add_server_command(message)
             elif message.text == "Мои серверы":
@@ -483,6 +646,21 @@ def register_handlers(dp: Dispatcher):
                 await edit_server_command(message)
             elif message.text == "Удалить сервер":
                 await delete_server_command(message)
+            elif is_admin:
+                if message.text == "Список ожидающих пользователей":
+                    await list_pending_users_command(message)
+                elif message.text == "Одобрить пользователя":
+                    await message.reply("Введите ID пользователя для одобрения.", reply_markup=get_admin_menu())
+                    dp.register_message_handler(process_approve_user_id, content_types=['text'])
+                elif message.text == "Удалить пользователя":
+                    await message.reply("Введите ID пользователя для удаления.", reply_markup=get_admin_menu())
+                    dp.register_message_handler(process_delete_user_id, content_types=['text'])
+                elif message.text == "Повторно отправить уведомления":
+                    await resend_notification_command(message)
+                elif message.text == "Тест уведомлений":
+                    await debug_notify_command(message)
+                elif message.text == "Назад":
+                    await message.reply("Возвращение в главное меню.", reply_markup=get_main_menu())
         except Exception as e:
             logger.error(f"Error in text_menu_handler: {e}")
-            await message.reply("Произошла ошибка. Попробуйте позже.")
+            await message.reply("Произошла ошибка. Попробуйте позже.", reply_markup=get_main_menu())
