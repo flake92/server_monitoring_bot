@@ -4,7 +4,7 @@ from database.db_manager import DBManager
 from config.config import Config
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -67,20 +67,22 @@ def register_handlers(dp: Dispatcher):
                     else:
                         logger.error("No admin IDs configured in ADMIN_IDS, cannot send notifications")
                     await message.reply("Заявка на регистрацию отправлена. Ожидайте одобрения администратора.")
-            elif user.status == 'pending' and is_admin:
-                logger.info(f"Updating user {message.from_user.id} from pending to approved")
-                db.update_user_status(message.from_user.id, 'approved')
-                logger.info(f"Updated user {message.from_user.id} to approved as admin")
-                await message.reply(
-                    "Добро пожаловать, администратор! Ваш статус обновлён. Используйте /admin для доступа к панели.",
-                    reply_markup=get_main_menu()
-                )
-            elif user.status == 'pending':
-                await message.reply("Ваша заявка на рассмотрении.")
-            elif user.status == 'approved':
-                welcome_msg = "Добро пожаловать в бот мониторинга серверов!" if not is_admin else \
-                             "Добро пожаловать, администратор! Используйте /admin для доступа к панели."
-                await message.reply(welcome_msg, reply_markup=get_main_menu())
+            else:
+                logger.info(f"User {message.from_user.id} already exists with status {user.status}")
+                if user.status == 'pending' and is_admin:
+                    logger.info(f"Updating user {message.from_user.id} from pending to approved")
+                    db.update_user_status(message.from_user.id, 'approved')
+                    logger.info(f"Updated user {message.from_user.id} to approved as admin")
+                    await message.reply(
+                        "Добро пожаловать, администратор! Ваш статус обновлён. Используйте /admin для доступа к панели.",
+                        reply_markup=get_main_menu()
+                    )
+                elif user.status == 'pending':
+                    await message.reply("Ваша заявка на рассмотрении.")
+                elif user.status == 'approved':
+                    welcome_msg = "Добро пожаловать в бот мониторинга серверов!" if not is_admin else \
+                                 "Добро пожаловать, администратор! Используйте /admin для доступа к панели."
+                    await message.reply(welcome_msg, reply_markup=get_main_menu())
             db.close()
         except Exception as e:
             logger.error(f"Error in start_command: {e}")
@@ -99,7 +101,10 @@ def register_handlers(dp: Dispatcher):
             "/delete_server - Удалить сервер\n"
             "/check_servers - Проверить статус серверов\n"
             "/admin - Админ-панель (для администраторов)\n"
-            "/debug_notify - Проверить уведомления (для администраторов)"
+            "/debug_notify - Проверить уведомления (для администраторов)\n"
+            "/list_pending_users - Показать пользователей с ожидающими заявками (для администраторов)\n"
+            "/delete_user - Удалить пользователя (для администраторов)\n"
+            "/resend_notification - Повторно отправить уведомления о заявках (для администраторов)"
         )
 
     @dp.message_handler(commands=['debug_notify'])
@@ -136,6 +141,119 @@ def register_handlers(dp: Dispatcher):
                 await message.reply("Ошибка: список администраторов пуст.")
         except Exception as e:
             logger.error(f"Error in debug_notify_command: {e}")
+            await message.reply("Произошла ошибка. Попробуйте позже.")
+
+    @dp.message_handler(commands=['list_pending_users'])
+    async def list_pending_users_command(message: Message):
+        logger.info(f"Received /list_pending_users from user {message.from_user.id}")
+        try:
+            config = Config()
+            admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
+            logger.info(f"Parsed admin_ids for list_pending_users: {admin_ids}")
+            if not admin_ids:
+                logger.error("No admin IDs configured in ADMIN_IDS")
+                await message.reply("Ошибка: список администраторов пуст.")
+                return
+            if str(message.from_user.id) not in admin_ids:
+                logger.warning(f"Access denied for user {message.from_user.id}")
+                await message.reply("Доступ запрещён.")
+                return
+            db = DBManager()
+            pending_users = db.get_pending_users()
+            if not pending_users:
+                await message.reply("Нет пользователей с ожидающими заявками.")
+            else:
+                response = "Пользователи с ожидающими заявками:\n"
+                for user in pending_users:
+                    response += f"ID: {user.id}, Username: @{user.username or 'unknown'}, Status: {user.status}\n"
+                await message.reply(response)
+            db.close()
+        except Exception as e:
+            logger.error(f"Error in list_pending_users_command: {e}")
+            await message.reply("Произошла ошибка. Попробуйте позже.")
+
+    @dp.message_handler(commands=['delete_user'])
+    async def delete_user_command(message: Message):
+        logger.info(f"Received /delete_user from user {message.from_user.id}")
+        try:
+            config = Config()
+            admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
+            logger.info(f"Parsed admin_ids for delete_user: {admin_ids}")
+            if not admin_ids:
+                logger.error("No admin IDs configured in ADMIN_IDS")
+                await message.reply("Ошибка: список администраторов пуст.")
+                return
+            if str(message.from_user.id) not in admin_ids:
+                logger.warning(f"Access denied for user {message.from_user.id}")
+                await message.reply("Доступ запрещён.")
+                return
+            args = message.get_args()
+            if not args:
+                await message.reply("Укажите ID пользователя. Пример: /delete_user 123456789")
+                return
+            try:
+                user_id = int(args.strip())
+            except ValueError:
+                await message.reply("ID пользователя должен быть числом.")
+                return
+            db = DBManager()
+            user = db.get_user(user_id)
+            if user is None:
+                await message.reply(f"Пользователь с ID {user_id} не найден.")
+            else:
+                db.delete_user(user_id)
+                await message.reply(f"Пользователь с ID {user_id} удалён.")
+            db.close()
+        except Exception as e:
+            logger.error(f"Error in delete_user_command: {e}")
+            await message.reply("Произошла ошибка. Попробуйте позже.")
+
+    @dp.message_handler(commands=['resend_notification'])
+    async def resend_notification_command(message: Message):
+        logger.info(f"Received /resend_notification from user {message.from_user.id}")
+        try:
+            config = Config()
+            admin_ids = [id.strip() for id in config.admin_ids.split(',') if id.strip()] if config.admin_ids else []
+            logger.info(f"Parsed admin_ids for resend_notification: {admin_ids}")
+            if not admin_ids:
+                logger.error("No admin IDs configured in ADMIN_IDS")
+                await message.reply("Ошибка: список администраторов пуст.")
+                return
+            if str(message.from_user.id) not in admin_ids:
+                logger.warning(f"Access denied for user {message.from_user.id}")
+                await message.reply("Доступ запрещён.")
+                return
+            db = DBManager()
+            last_notification = db.get_last_notification_time()
+            current_time = datetime.utcnow()
+            cooldown_seconds = 300  # 5 минут
+            if last_notification and (current_time - last_notification).total_seconds() < cooldown_seconds:
+                remaining_seconds = int(cooldown_seconds - (current_time - last_notification).total_seconds())
+                await message.reply(f"Подождите {remaining_seconds} секунд перед повторной отправкой уведомлений.")
+                db.close()
+                return
+            pending_users = db.get_pending_users()
+            if not pending_users:
+                await message.reply("Нет пользователей с ожидающими заявками.")
+                db.close()
+                return
+            for user in pending_users:
+                for admin_id in admin_ids:
+                    try:
+                        await message.bot.send_message(
+                            admin_id,
+                            f"Повторное уведомление о заявке:\n"
+                            f"Пользователь: @{user.username or 'unknown'} (ID: {user.id})"
+                        )
+                        logger.info(f"Sent notification about pending user {user.id} to admin {admin_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to send notification about user {user.id} to admin {admin_id}: {e}")
+                        await message.reply(f"Ошибка при отправке уведомления админу {admin_id} о пользователе {user.id}: {str(e)}")
+            db.update_notification_time(current_time)
+            await message.reply(f"Отправлены уведомления о {len(pending_users)} ожидающих заявках.")
+            db.close()
+        except Exception as e:
+            logger.error(f"Error in resend_notification_command: {e}")
             await message.reply("Произошла ошибка. Попробуйте позже.")
 
     @dp.message_handler(commands=['add_server'])

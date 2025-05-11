@@ -22,6 +22,11 @@ CREATE TABLE IF NOT EXISTS notifications (
     timestamp TIMESTAMP NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS notification_cooldown (
+    id INTEGER PRIMARY KEY,
+    last_notification TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_servers_user_id ON servers(user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_server_id ON notifications(server_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
