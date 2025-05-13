@@ -236,6 +236,32 @@ async def schedule_monitoring_tasks(scheduler, bot):
     monitoring_service = MonitoringService()
     config = Config()
 
+    # Добавляем задачу мониторинга
+    scheduler.add_job(
+        monitoring_service.monitor_all_servers,
+        "interval",
+        seconds=config.monitoring.interval,
+        args=[bot],
+        id="monitoring_job",
+        replace_existing=True,
+    )
+
+
+async def check_server(server) -> str:
+    """Check server status and return status message."""
+    try:
+        async with MonitoringService() as monitoring:
+            status = await monitoring.check_port(server.address, server.port)
+            if status[0]:
+                return f"✅ Онлайн (время отклика: {status[1]:.2f}с)"
+            else:
+                return f"❌ Оффлайн ({status[2]})"
+    except Exception as e:
+        logger.error(f"Error checking server {server.address}: {e}")
+        return f"❌ Ошибка: {str(e)}"
+    monitoring_service = MonitoringService()
+    config = Config()
+
     async def monitor_servers():
         try:
             db = DBManager()

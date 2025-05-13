@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
-from config import Config
+from config.config import Config
 from database.db_manager import DBManager
 from utils.logger import setup_logger
 
@@ -85,8 +85,7 @@ def is_valid_server_address(address: str) -> bool:
 
 def is_admin(user_id: int) -> bool:
     config = Config()
-    admin_ids = [int(id.strip()) for id in config.admin_ids.split(",") if id.strip()]
-    return user_id in admin_ids
+    return user_id in config.admin_ids
 
 
 def validate_port(port: str) -> bool:

@@ -1,6 +1,7 @@
 """Tests for user handlers."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
+from dataclasses import dataclass
 
 import pytest
 from aiogram.types import Message, User
@@ -8,10 +9,18 @@ from aiogram.types import Message, User
 from handlers.user_handlers import help_command, start_command
 
 
+@dataclass
+class TestUser:
+    id: int
+    username: str
+    status: str = 'approved'
+
+
 @pytest.mark.asyncio
-async def test_start_command(mock_message, mock_db):
+async def test_start_command(mock_message, mock_db, mock_config):
     """Test start command."""
-    with patch("handlers.user_handlers.DBManager", return_value=mock_db):
+    with patch("handlers.user_handlers.DBManager", return_value=mock_db),\
+         patch("handlers.user_handlers.Config", return_value=mock_config):
         # Вызываем тестируемую функцию
         await start_command(mock_message)
 
@@ -24,10 +33,11 @@ async def test_start_command(mock_message, mock_db):
 
 
 @pytest.mark.asyncio
-async def test_help_command(mock_message):
+async def test_help_command(mock_message, mock_config):
     """Test help command."""
-    # Вызываем тестируемую функцию
-    await help_command(mock_message)
+    with patch("handlers.user_handlers.Config", return_value=mock_config):
+        # Вызываем тестируемую функцию
+        await help_command(mock_message)
 
     # Проверяем, что сообщение было отправлено
     mock_message.reply.assert_called_once()
@@ -35,12 +45,13 @@ async def test_help_command(mock_message):
 
 
 @pytest.mark.asyncio
-async def test_start_command_existing_user(mock_message, mock_db):
+async def test_start_command_existing_user(mock_message, mock_db, mock_config):
     """Test start command with existing user."""
     # Настраиваем мок для существующего пользователя
-    mock_db.get_user.return_value = {"id": 12345, "username": "test_user"}
+    mock_db.get_user.return_value = TestUser(id=12345, username="test_user", status="approved")
 
-    with patch("handlers.user_handlers.DBManager", return_value=mock_db):
+    with patch("handlers.user_handlers.DBManager", return_value=mock_db),\
+         patch("handlers.user_handlers.Config", return_value=mock_config):
         # Вызываем тестируемую функцию
         await start_command(mock_message)
 

@@ -9,6 +9,12 @@ def mock_config():
     config = MagicMock()
     config.bot_token = 'test_token'
     config.admin_ids = [12345]
+    config.database = MagicMock()
+    config.database.host = 'localhost'
+    config.database.port = 5432
+    config.database.name = 'test_db'
+    config.database.user = 'test_user'
+    config.database.password = 'test_pass'
     return config
 
 @pytest.fixture
@@ -30,4 +36,5 @@ def mock_db():
     db.add_user = AsyncMock(return_value=True)
     db.get_server = AsyncMock(return_value=None)
     db.add_server = AsyncMock(return_value=True)
+    db.close = AsyncMock()
     return db
