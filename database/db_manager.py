@@ -1,26 +1,30 @@
-import psycopg2
-from psycopg2.extras import NamedTupleCursor, Json
-from psycopg2.pool import SimpleConnectionPool
 import logging
-from datetime import datetime, date
-from typing import List, Dict, Optional
+from contextlib import contextmanager
+from datetime import date, datetime
+from typing import Dict, List, Optional
+
+import psycopg2
+from psycopg2.extras import Json, NamedTupleCursor
+from psycopg2.pool import SimpleConnectionPool
+
 from config.config import Config
 from utils.logger import setup_logger
-from contextlib import contextmanager
 
 logger = setup_logger(__name__)
 
+
 class DBManager:
     """Менеджер базы данных с поддержкой пула соединений"""
+
     _pool = None
-    
+
     def __init__(self):
         """Инициализация менеджера базы данных"""
         self.config = Config()
         self.conn = None  # Текущее соединение
         self.cursor = None
         self._ensure_pool()  # Настройка пула соединений
-    
+
     def _ensure_pool(self):
         """Настройка пула соединений с базой данных"""
         if DBManager._pool is None:
@@ -32,13 +36,13 @@ class DBManager:
                     port=self.config.db_port,
                     database=self.config.db_name,
                     user=self.config.db_user,
-                    password=self.config.db_password
+                    password=self.config.db_password,
                 )
                 logger.info("Пул соединений инициализирован")
             except Exception as e:
                 logger.error(f"Ошибка инициализации пула соединений: {e}")
                 raise
-    
+
     def __enter__(self):
         """Получение соединения из пула при входе в контекст"""
         try:
@@ -47,7 +51,7 @@ class DBManager:
         except Exception as e:
             logger.error(f"Ошибка получения соединения из пула: {e}")
             raise
-        
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Возвращение соединения в пул при выходе из контекста"""
         self.close()
@@ -122,14 +126,14 @@ class DBManager:
                 """INSERT INTO users (user_id, username, status)
                 VALUES (%s, %s, %s)
                 RETURNING user_id""",
-                (user_id, username, status)
+                (user_id, username, status),
             )
             user_id = self.cursor.fetchone()[0]
             # Создание настроек уведомлений по умолчанию
             self.cursor.execute(
                 """INSERT INTO notification_settings (user_id)
                 VALUES (%s)""",
-                (user_id,)
+                (user_id,),
             )
             self.conn.commit()
             logger.info(f"Добавлен пользователь {user_id} со статусом {status}")
@@ -146,7 +150,7 @@ class DBManager:
                 FROM users u
                 LEFT JOIN notification_settings ns ON u.user_id = ns.user_id
                 WHERE u.user_id = %s""",
-                (user_id,)
+                (user_id,),
             )
             return self.cursor.fetchone()
         except Exception as e:
@@ -159,7 +163,7 @@ class DBManager:
                 """UPDATE users
                 SET status = %s, updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = %s""",
-                (status, user_id)
+                (status, user_id),
             )
             self.conn.commit()
             logger.info(f"Updated user {user_id} status to {status}")
@@ -170,10 +174,7 @@ class DBManager:
 
     def delete_user(self, user_id: int):
         try:
-            self.cursor.execute(
-                "DELETE FROM users WHERE user_id = %s",
-                (user_id,)
-            )
+            self.cursor.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
             self.conn.commit()
             logger.info(f"Deleted user {user_id}")
         except Exception as e:
@@ -193,13 +194,20 @@ class DBManager:
             logger.error(f"Error in get_pending_users: {e}")
             raise
 
-    def add_server(self, user_id: int, name: str, address: str, check_type: str, services: Optional[List[Dict]] = None):
+    def add_server(
+        self,
+        user_id: int,
+        name: str,
+        address: str,
+        check_type: str,
+        services: Optional[List[Dict]] = None,
+    ):
         try:
             self.cursor.execute(
                 """INSERT INTO servers (user_id, name, address, check_type)
                 VALUES (%s, %s, %s, %s)
                 RETURNING id""",
-                (user_id, name, address, check_type)
+                (user_id, name, address, check_type),
             )
             server_id = self.cursor.fetchone()[0]
 
@@ -210,8 +218,7 @@ class DBManager:
                         """INSERT INTO server_services
                         (server_id, name, port, description)
                         VALUES (%s, %s, %s, %s)""",
-                        (server_id, service['name'], service['port'],
-                         service.get('description'))
+                        (server_id, service["name"], service["port"], service.get("description")),
                     )
 
             self.conn.commit()
@@ -231,7 +238,7 @@ class DBManager:
                 WHERE s.user_id = %s
                 GROUP BY s.id
                 ORDER BY s.name""",
-                (user_id,)
+                (user_id,),
             )
             return self.cursor.fetchall()
         except Exception as e:
@@ -252,7 +259,7 @@ class DBManager:
         try:
             self.cursor.execute(
                 "UPDATE servers SET name = %s, address = %s, check_type = %s WHERE id = %s",
-                (name, address, check_type, server_id)
+                (name, address, check_type, server_id),
             )
             self.conn.commit()
             logger.info(f"Updated server {server_id}")
@@ -274,9 +281,14 @@ class DBManager:
                     avg_response_time = EXCLUDED.avg_response_time,
                     total_checks = EXCLUDED.total_checks,
                     successful_checks = EXCLUDED.successful_checks""",
-                (server_id, date.today(), stats['uptime'],
-                 stats['avg_response'], stats.get('total_checks', 0),
-                 stats.get('successful_checks', 0))
+                (
+                    server_id,
+                    date.today(),
+                    stats["uptime"],
+                    stats["avg_response"],
+                    stats.get("total_checks", 0),
+                    stats.get("successful_checks", 0),
+                ),
             )
             self.conn.commit()
             logger.info(f"Updated stats for server {server_id}")
@@ -293,17 +305,22 @@ class DBManager:
                 WHERE server_id = %s
                 AND date >= CURRENT_DATE - interval '%s days'
                 ORDER BY date DESC""",
-                (server_id, days)
+                (server_id, days),
             )
             return self.cursor.fetchall()
         except Exception as e:
             logger.error(f"Error in get_server_stats: {e}")
             raise
 
-    def update_server_status(self, server_id: int, status: str, last_checked: datetime,
-                           response_time: Optional[float] = None,
-                           error_message: Optional[str] = None,
-                           services_status: Optional[Dict] = None):
+    def update_server_status(
+        self,
+        server_id: int,
+        status: str,
+        last_checked: datetime,
+        response_time: Optional[float] = None,
+        error_message: Optional[str] = None,
+        services_status: Optional[Dict] = None,
+    ):
         try:
             # Update server status
             self.cursor.execute(
@@ -312,7 +329,7 @@ class DBManager:
                     response_time = %s, error_message = %s,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = %s""",
-                (status, last_checked, response_time, error_message, server_id)
+                (status, last_checked, response_time, error_message, server_id),
             )
 
             # Add to monitoring history
@@ -321,8 +338,14 @@ class DBManager:
                 (server_id, timestamp, status, response_time,
                  error_message, services_status)
                 VALUES (%s, %s, %s, %s, %s, %s)""",
-                (server_id, last_checked, status, response_time,
-                 error_message, Json(services_status) if services_status else None)
+                (
+                    server_id,
+                    last_checked,
+                    status,
+                    response_time,
+                    error_message,
+                    Json(services_status) if services_status else None,
+                ),
             )
 
             self.conn.commit()
@@ -334,10 +357,7 @@ class DBManager:
 
     def delete_server(self, server_id: int):
         try:
-            self.cursor.execute(
-                "DELETE FROM servers WHERE id = %s",
-                (server_id,)
-            )
+            self.cursor.execute("DELETE FROM servers WHERE id = %s", (server_id,))
             self.conn.commit()
             logger.info(f"Deleted server {server_id}")
         except Exception as e:
@@ -349,7 +369,7 @@ class DBManager:
         try:
             self.cursor.execute(
                 "INSERT INTO notifications (server_id, user_id, status, timestamp) VALUES (%s, %s, %s, %s)",
-                (server_id, user_id, status, timestamp)
+                (server_id, user_id, status, timestamp),
             )
             self.conn.commit()
             logger.info(f"Added notification for server {server_id} and user {user_id}")
@@ -360,9 +380,7 @@ class DBManager:
 
     def get_last_notification_time(self):
         try:
-            self.cursor.execute(
-                "SELECT last_notification FROM notification_cooldown WHERE id = 1"
-            )
+            self.cursor.execute("SELECT last_notification FROM notification_cooldown WHERE id = 1")
             result = self.cursor.fetchone()
             return result.last_notification if result else None
         except Exception as e:
@@ -378,7 +396,7 @@ class DBManager:
                 ON CONFLICT (id) DO UPDATE
                 SET last_notification = EXCLUDED.last_notification
                 """,
-                (timestamp,)
+                (timestamp,),
             )
             self.conn.commit()
             logger.info("Updated notification cooldown timestamp")

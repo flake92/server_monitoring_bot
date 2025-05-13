@@ -1,7 +1,19 @@
 """Fixtures for tests."""
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock
-from aiogram.types import Message, User, Chat
+
+import pytest
+from aiogram.types import Chat, Message, User
+
+
+@pytest.fixture
+def mock_config():
+    """Create a mock configuration for testing."""
+    config = MagicMock()
+    config.bot_token = "test_token"
+    config.admin_ids = [12345]
+    return config
+
 
 @pytest.fixture
 def mock_message():
@@ -14,8 +26,13 @@ def mock_message():
     message.chat.id = 12345
     return message
 
+
 @pytest.fixture
 def mock_db():
     """Create a mock database for testing."""
-    with pytest.MongoMock() as mongo:
-        yield mongo
+    db = AsyncMock()
+    db.get_user = AsyncMock(return_value=None)
+    db.add_user = AsyncMock(return_value=True)
+    db.get_server = AsyncMock(return_value=None)
+    db.add_server = AsyncMock(return_value=True)
+    return db
