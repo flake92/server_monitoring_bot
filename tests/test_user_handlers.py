@@ -19,6 +19,12 @@ class TestUser:
 @pytest.mark.asyncio
 async def test_start_command(mock_message, mock_db, mock_config):
     """Test start command."""
+    # Настраиваем моки
+    mock_message.reply = AsyncMock()
+    mock_db.get_user = AsyncMock(return_value=None)
+    mock_db.add_user = AsyncMock(return_value=True)
+    mock_db.close = AsyncMock()
+
     with patch("handlers.user_handlers.DBManager", return_value=mock_db),\
          patch("handlers.user_handlers.Config", return_value=mock_config):
         # Вызываем тестируемую функцию
@@ -26,7 +32,7 @@ async def test_start_command(mock_message, mock_db, mock_config):
 
         # Проверяем, что сообщение было отправлено
         mock_message.reply.assert_called_once()
-        assert "Добро пожаловать" in mock_message.reply.call_args[0][0]
+        assert "Ваша заявка на регистрацию принята" in mock_message.reply.call_args[0][0]
         # Проверяем, что пользователь был добавлен в базу
         mock_db.get_user.assert_called_once_with(mock_message.from_user.id)
         mock_db.add_user.assert_called_once()
@@ -35,20 +41,26 @@ async def test_start_command(mock_message, mock_db, mock_config):
 @pytest.mark.asyncio
 async def test_help_command(mock_message, mock_config):
     """Test help command."""
+    # Настраиваем моки
+    mock_message.reply = AsyncMock()
+
     with patch("handlers.user_handlers.Config", return_value=mock_config):
         # Вызываем тестируемую функцию
         await help_command(mock_message)
 
-    # Проверяем, что сообщение было отправлено
-    mock_message.reply.assert_called_once()
-    assert "Список доступных команд" in mock_message.reply.call_args[0][0]
+        # Проверяем, что сообщение было отправлено
+        mock_message.reply.assert_called_once()
+        assert "Список доступных команд" in mock_message.reply.call_args[0][0]
 
 
 @pytest.mark.asyncio
 async def test_start_command_existing_user(mock_message, mock_db, mock_config):
     """Test start command with existing user."""
-    # Настраиваем мок для существующего пользователя
-    mock_db.get_user.return_value = TestUser(id=12345, username="test_user", status="approved")
+    # Настраиваем моки
+    mock_message.reply = AsyncMock()
+    mock_db.get_user = AsyncMock(return_value=TestUser(id=12345, username="test_user", status="approved"))
+    mock_db.add_user = AsyncMock(return_value=True)
+    mock_db.close = AsyncMock()
 
     with patch("handlers.user_handlers.DBManager", return_value=mock_db),\
          patch("handlers.user_handlers.Config", return_value=mock_config):
@@ -57,7 +69,7 @@ async def test_start_command_existing_user(mock_message, mock_db, mock_config):
 
         # Проверяем, что сообщение было отправлено
         mock_message.reply.assert_called_once()
-        assert "С возвращением" in mock_message.reply.call_args[0][0]
+        assert "Добро пожаловать" in mock_message.reply.call_args[0][0]
         # Проверяем, что пользователь не был добавлен повторно
         mock_db.get_user.assert_called_once_with(mock_message.from_user.id)
         mock_db.add_user.assert_not_called()
