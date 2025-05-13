@@ -1,19 +1,15 @@
 """Fixtures for tests."""
-
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
-from aiogram.types import Chat, Message, User
-
+from unittest.mock import AsyncMock, MagicMock
+from aiogram.types import Message, User, Chat
 
 @pytest.fixture
 def mock_config():
     """Create a mock configuration for testing."""
     config = MagicMock()
-    config.bot_token = "test_token"
+    config.bot_token = 'test_token'
     config.admin_ids = [12345]
     return config
-
 
 @pytest.fixture
 def mock_message():
@@ -25,7 +21,6 @@ def mock_message():
     message.chat = MagicMock(spec=Chat)
     message.chat.id = 12345
     return message
-
 
 @pytest.fixture
 def mock_db():
