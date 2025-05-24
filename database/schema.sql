@@ -75,8 +75,12 @@ CREATE TABLE IF NOT EXISTS notification_settings (
     UNIQUE(user_id)
 );
 
--- Drop old notification_cooldown table as it's replaced by notification_settings
-DROP TABLE IF EXISTS notification_cooldown;
+CREATE TABLE IF NOT EXISTS notification_cooldown (
+    id INTEGER PRIMARY KEY,
+    last_notification TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_servers_user_id ON servers(user_id);

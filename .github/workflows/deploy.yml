@@ -9,6 +9,20 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_pass
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,9 +36,19 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          pip cache purge
           pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov aioresponses asyncpg>=0.29.0
+          pip show asyncpg | grep Version
+          pip list | grep asyncpg
 
       - name: Run tests
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: test_db
+          DB_USER: test_user
+          DB_PASSWORD: test_pass
         run: |
           if [ -d "tests" ]; then
             echo "Running tests in tests/ directory"
@@ -45,18 +69,8 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
-            echo "SSH_PRIVATE_KEY is empty"; exit 1;
-          fi
-          if [ -z "${{ secrets.SERVER_USER }}" ]; then
-            echo "SERVER_USER is empty"; exit 1;
-          fi
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -p 46928 -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
-          if [ $? -ne 0 ]; then
-            echo "Failed to scan SSH host key for ${{ secrets.SERVER_IP }} on port 46928"
-            exit 1
-          fi
 
       - name: Deploy to server
         env:
@@ -65,53 +79,39 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           ADMIN_IDS: ${{ secrets.ADMIN_IDS }}
+          DB_USER: monitor_user
+          DB_PASS: ${{ secrets.DB_PASSWORD }}
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: server_monitoring
         run: |
-          echo "Attempting SSH connection to $SERVER_USER@$SERVER_IP"
           ssh -i ~/.ssh/id_ed25519 -p 46928 -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP << 'EOF'
             set -ex
             export SERVER_USER="$SERVER_USER"
             echo "Deploying as user: $SERVER_USER"
-            echo "Home directory: $HOME"
-            echo "User: $(whoami)"
-            echo "Bash version: $BASH_VERSION"
 
             # Проверка версии Python
-            echo "Checking Python version"
             if ! python3 --version | grep -q "3.11"; then
               echo "Python 3.11 is required"
               exit 1
             fi
 
-            # Проверка наличия PostgreSQL
-            echo "Checking PostgreSQL"
+            # Проверка PostgreSQL
             if ! which psql > /dev/null; then
               echo "PostgreSQL client not found"
               exit 1
             fi
 
             # Проверка systemd
-            echo "Checking systemd service"
             if [ ! -f "/etc/systemd/system/telegram-bot.service" ]; then
               echo "Systemd service not found"
               exit 1
             fi
 
             # Создание резервной копии базы данных
-            echo "Creating database backup"
             export PGPASSWORD="${{ secrets.DB_PASSWORD }}"
             backup_file="/home/$SERVER_USER/server_monitoring_backup_$(date +%Y%m%d_%H%M%S).sql"
             pg_dump -U monitor_user -d server_monitoring -h localhost -p 5432 > "$backup_file"
-            if [ $? -ne 0 ]; then
-              echo "Failed to create database backup"
-              exit 1
-            fi
-            unset PGPASSWORD
-
-            # Проверка переменной SERVER_USER
-            if [ -z "$SERVER_USER" ]; then
-              echo "SERVER_USER is empty in SSH session"
-              exit 1
-            fi
 
             # Проверка домашней директории
             if [ ! -d "/home/$SERVER_USER" ]; then
@@ -121,19 +121,12 @@ jobs:
 
             # Клонирование репозитория
             if [ -d "/home/$SERVER_USER/server_monitoring_bot" ]; then
-              echo "Directory /home/$SERVER_USER/server_monitoring_bot exists, removing and re-cloning"
               rm -rf /home/$SERVER_USER/server_monitoring_bot
             fi
-            echo "Cloning repository to /home/$SERVER_USER/server_monitoring_bot"
             git clone https://github.com/flake92/server_monitoring_bot.git /home/$SERVER_USER/server_monitoring_bot
-            if [ $? -ne 0 ]; then
-              echo "Failed to clone repository"
-              exit 1
-            fi
             cd /home/$SERVER_USER/server_monitoring_bot
 
             # Проверка структуры проекта
-            echo "Checking project structure"
             for dir in config database handlers services utils tests; do
               if [ ! -d "$dir" ]; then
                 echo "Directory $dir not found"
@@ -146,36 +139,23 @@ jobs:
             sudo chmod -R u+rwX /home/$SERVER_USER/server_monitoring_bot
 
             # Установка зависимостей
-            echo "Setting up virtual environment"
             python3 -m venv venv
             source venv/bin/activate
             pip install --upgrade pip
+            pip cache purge
             pip install -r requirements.txt
-            if [ $? -ne 0 ]; then
-              echo "Failed to install requirements"
-              exit 1
-            fi
 
-            # Проверка всех зависимостей
-            echo "Checking dependencies"
+            # Проверка ключевых зависимостей
             required_packages=(
               "aiogram>=3.0.0b5"
               "aiogram-dialog>=2.1.0"
               "psycopg2-binary>=2.9.9"
-              "aiohttp>=3.9.1"
-              "ping3>=4.0.3"
-              "requests>=2.31.0"
-              "dnspython>=2.4.2"
+              "asyncpg>=0.29.0"
               "pydantic>=1.10.13"
               "pydantic-settings>=2.5.2"
               "python-dotenv>=1.0.0"
-              "matplotlib>=3.8.2"
-              "pandas>=2.1.4"
-              "APScheduler>=3.10.4"
-              "pytz>=2023.3.post1"
               "alembic>=1.13.1"
             )
-
             for package in "${required_packages[@]}"; do
               name=$(echo $package | cut -d= -f1)
               version=$(echo $package | cut -d= -f2)
@@ -186,76 +166,55 @@ jobs:
               fi
             done
 
-            # Проверка и создание .env файла
-            echo "Setting up environment variables"
-            required_env_vars=(
-              "BOT_TOKEN=${{ secrets.BOT_TOKEN }}"
-              "DB_HOST=localhost"
-              "DB_PORT=5432"
-              "DB_NAME=server_monitoring"
-              "DB_USER=monitor_user"
-              "DB_PASSWORD=${{ secrets.DB_PASSWORD }}"
-              "ADMIN_IDS=${{ secrets.ADMIN_IDS }}"
-              "NOTIFICATION_INTERVAL=300"
-              "LOG_LEVEL=INFO"
-            )
-
-            for var in "${required_env_vars[@]}"; do
-              name=$(echo $var | cut -d= -f1)
-              value=$(echo $var | cut -d= -f2)
-              if [ -z "$value" ]; then
-                echo "$name is empty"
-                exit 1
-              fi
-              echo "$var" >> .env
-            done
+            # Создание .env файла
+            cat << ENV > .env
+            BOT_TOKEN=${{ secrets.BOT_TOKEN }}
+            DB_HOST=localhost
+            DB_PORT=5432
+            DB_NAME=server_monitoring
+            DB_USER=monitor_user
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            ADMIN_IDS=${{ secrets.ADMIN_IDS }}
+            NOTIFICATION_INTERVAL=300
+            LOG_LEVEL=INFO
+            ENV
             chmod 600 .env
 
-            # Инициализация и миграция базы данных
-            echo "Database initialization and migration"
+            # Инициализация базы данных
             if [ ! -f "database/schema.sql" ]; then
               echo "database/schema.sql not found"
               exit 1
             fi
 
             export PGPASSWORD="${{ secrets.DB_PASSWORD }}"
-
-            # Проверка существования базы данных
             if ! psql -U monitor_user -h localhost -p 5432 -lqt | cut -d \| -f 1 | grep -qw server_monitoring; then
               echo "Creating database server_monitoring"
               createdb -U monitor_user -h localhost -p 5432 server_monitoring
             fi
 
-            # Применение схемы и миграций
-            echo "Applying database schema and migrations"
+            # Применение схемы
             psql -U monitor_user -d server_monitoring -h localhost -p 5432 -f database/schema.sql
-            if [ $? -ne 0 ]; then
-              echo "Failed to apply database schema"
-              exit 1
-            fi
 
             # Применение миграций через Alembic
-            echo "Applying Alembic migrations"
+            export DB_USER="monitor_user"
+            export DB_PASS="${{ secrets.DB_PASSWORD }}"
+            export DB_HOST="localhost"
+            export DB_PORT="5432"
+            export DB_NAME="server_monitoring"
             alembic upgrade head
-            if [ $? -ne 0 ]; then
-              echo "Failed to apply Alembic migrations"
-              exit 1
-            fi
 
             unset PGPASSWORD
+            unset DB_USER DB_PASS DB_HOST DB_PORT DB_NAME
 
             # Проверка синтаксиса Python
-            echo "Checking Python syntax"
             find . -type f -name "*.py" ! -path "./venv/*" -exec python3 -m py_compile {} \;
 
-            # Проверка и настройка systemd сервиса
-            echo "Setting up systemd service"
+            # Настройка systemd сервиса
             sudo cp systemd/telegram-bot.service /etc/systemd/system/
             sudo systemctl daemon-reload
             sudo systemctl enable telegram-bot
 
             # Перезапуск сервиса
-            echo "Restarting service"
             sudo systemctl restart telegram-bot
             sleep 5
             if ! sudo systemctl is-active telegram-bot; then
@@ -265,7 +224,6 @@ jobs:
             fi
 
             # Проверка логов
-            echo "Checking logs"
             if [ -f "bot.log" ]; then
               tail -n 50 bot.log
             else

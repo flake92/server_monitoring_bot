@@ -335,38 +335,6 @@ class DBManager:
                 logger.error(f"Error adding notification: {e}")
                 raise
 
-    async def get_last_notification_time(self) -> Optional[datetime]:
-        async with self.get_connection() as conn:
-            try:
-                result = await conn.fetchrow(
-                    """
-                    SELECT last_notification
-                    FROM notification_cooldown
-                    WHERE id = 1
-                    """
-                )
-                return result["last_notification"] if result else None
-            except Exception as e:
-                logger.error(f"Error getting last notification time: {e}")
-                raise
-
-    async def update_notification_time(self, timestamp: datetime):
-        async with self.get_connection() as conn:
-            try:
-                await conn.execute(
-                    """
-                    INSERT INTO notification_cooldown (id, last_notification)
-                    VALUES (1, $1)
-                    ON CONFLICT (id) DO UPDATE
-                    SET last_notification = EXCLUDED.last_notification
-                    """,
-                    timestamp
-                )
-                logger.info("Updated notification cooldown timestamp")
-            except Exception as e:
-                logger.error(f"Error updating notification time: {e}")
-                raise
-
     async def clear_notifications(self):
         async with self.get_connection() as conn:
             try:

@@ -50,6 +50,8 @@ async def mock_db():
     db.update_server_status = AsyncMock()
     db.get_pending_users = AsyncMock(return_value=[])
     db.delete_user = AsyncMock()
+    db.clear_notifications = AsyncMock()
+    db.get_last_notification_time = AsyncMock(return_value=None)
     return db
 
 @pytest.fixture
@@ -62,14 +64,14 @@ async def mock_state():
     return state
 
 @pytest.mark.asyncio
-async def test_start_command_new_user(mock_message, mock_db, mock_config):
+async def test_start_command_new_user(mock_message, mock_db, mock_config, mock_state):
     mock_db.get_user.return_value = None
     await start_command(mock_message, mock_state)
     mock_db.add_user.assert_called_once_with(12345, "test_user", "approved")
     mock_message.reply.assert_called_with("✅ Добро пожаловать, администратор!", reply_markup=mock_message.reply.call_args[1]["reply_markup"])
 
 @pytest.mark.asyncio
-async def test_start_command_existing_user(mock_message, mock_db, mock_config):
+async def test_start_command_existing_user(mock_message, mock_db, mock_config, mock_state):
     mock_db.get_user.return_value = {"user_id": 12345, "username": "test_user", "status": "approved"}
     await start_command(mock_message, mock_state)
     mock_db.add_user.assert_not_called()
@@ -133,3 +135,15 @@ async def test_check_servers_command(mock_message, mock_db, mock_config, mock_st
     mock_state.set_state.assert_called_with(UserState.CHECK_SERVER.value)
     mock_message.reply.assert_called_once()
     assert "🟢 Test Server (ID: 1)" in mock_message.reply.call_args[0][0]
+
+@pytest.mark.asyncio
+async def test_clear_notifications_command(mock_message, mock_db, mock_config):
+    mock_db.get_user.return_value = {"user_id": 12345, "username": "test_user", "status": "approved"}
+    await mock_db.clear_notifications()
+    mock_db.clear_notifications.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_get_last_notification_time(mock_message, mock_db, mock_config):
+    mock_db.get_user.return_value = {"user_id": 12345, "username": "test_user", "status": "approved"}
+    await mock_db.get_last_notification_time()
+    mock_db.get_last_notification_time.assert_called_once()

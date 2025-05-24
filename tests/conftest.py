@@ -2,10 +2,12 @@ import pytest
 from unittest.mock import AsyncMock
 from aiogram.types import Message, User, Chat
 from aiogram.fsm.context import FSMContext
+from database.db_manager import DBManager
+from config.config import Config
 
 @pytest.fixture
 async def mock_config():
-    config = AsyncMock()
+    config = AsyncMock(spec=Config)
     config.bot_token.get_secret_value.return_value = "12345:ABCDE"
     config.admin_ids = [12345]
     config.database.host = "localhost"
@@ -31,7 +33,7 @@ async def mock_message():
 
 @pytest.fixture
 async def mock_db():
-    db = AsyncMock()
+    db = AsyncMock(spec=DBManager)
     db.get_user = AsyncMock(return_value=None)
     db.add_user = AsyncMock(return_value=12345)
     db.update_user_status = AsyncMock()
@@ -42,8 +44,13 @@ async def mock_db():
     db.update_server_status = AsyncMock()
     db.get_pending_users = AsyncMock(return_value=[])
     db.delete_user = AsyncMock()
-    db.get_approved_users = AsyncMock(return_value=[])
     db.clear_notifications = AsyncMock()
+    db.get_all_servers = AsyncMock(return_value=[])
+    db.update_server_stats = AsyncMock()
+    db.get_server_stats = AsyncMock(return_value=[])
+    db.add_notification = AsyncMock()
+    db.get_last_notification_time = AsyncMock(return_value=None)
+    db.update_notification_time = AsyncMock()
     return db
 
 @pytest.fixture
