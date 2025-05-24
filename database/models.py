@@ -1,78 +1,98 @@
-from dataclasses import dataclass
 from datetime import datetime, time
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, validator
 
-@dataclass
-class NotificationSettings:
-    """Настройки уведомлений пользователя"""
+class NotificationSettings(BaseModel):
+    """User notification settings"""
+    user_id: int
+    notify_on_status_change: bool = True
+    notify_on_slow_response: bool = False
+    slow_response_threshold: float = 1.0
+    notification_cooldown_minutes: int = 5
+    quiet_hours_start: Optional[time] = None
+    quiet_hours_end: Optional[time] = None
 
-    user_id: int  # ID пользователя
-    notify_on_status_change: bool = True  # Уведомлять об изменении статуса
-    notify_on_slow_response: bool = False  # Уведомлять о медленном ответе
-    slow_response_threshold: float = 1.0  # Порог медленного ответа в секундах
-    notification_cooldown_minutes: int = 5  # Период ожидания между уведомлениями в минутах
-    quiet_hours_start: Optional[time] = None  # Начало тихого времени
-    quiet_hours_end: Optional[time] = None  # Конец тихого времени
+    @validator("slow_response_threshold", "notification_cooldown_minutes")
+    def validate_positive(cls, v):
+        if v <= 0:
+            raise ValueError("Value must be positive")
+        return v
 
+class User(BaseModel):
+    """System user"""
+    user_id: int
+    username: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    notification_settings: Optional[NotificationSettings] = None
 
-@dataclass
-class User:
-    """Пользователь системы"""
+    @validator("status")
+    def validate_status(cls, v):
+        valid_statuses = ["pending", "approved", "blocked"]
+        if v not in valid_statuses:
+            raise ValueError(f"Status must be one of {valid_statuses}")
+        return v
 
-    user_id: int  # ID пользователя в Telegram
-    username: str  # Имя пользователя
-    status: str  # Статус пользователя (active/blocked)
-    created_at: datetime  # Дата создания
-    updated_at: datetime  # Дата последнего обновления
-    notification_settings: Optional[NotificationSettings] = None  # Настройки уведомлений
+class Service(BaseModel):
+    """Server service"""
+    id: int
+    server_id: int
+    name: str
+    port: int
+    description: Optional[str] = None
 
+    @validator("port")
+    def validate_port(cls, v):
+        if not 1 <= v <= 65535:
+            raise ValueError("Port must be between 1 and 65535")
+        return v
 
-@dataclass
-class Service:
-    """Сервис на сервере"""
+class Server(BaseModel):
+    """Server for monitoring"""
+    id: int
+    user_id: int
+    name: str
+    address: str
+    check_type: str
+    status: str
+    last_checked: Optional[datetime] = None
+    response_time: Optional[float] = None
+    error_message: Optional[str] = None
+    services: Optional[List[Service]] = None
 
-    id: int  # Уникальный идентификатор
-    server_id: int  # ID сервера
-    name: str  # Название сервиса
-    port: int  # Порт сервиса
-    description: Optional[str] = None  # Описание сервиса
-    created_at: Optional[datetime] = None  # Дата создания
+    @validator("check_type")
+    def validate_check_type(cls, v):
+        valid_types = ["icmp", "http", "https", "tcp"]
+        if v not in valid_types:
+            raise ValueError(f"check_type must be one of {valid_types}")
+        return v
 
+    @validator("status")
+    def validate_status(cls, v):
+        valid_statuses = ["online", "offline", "unknown"]
+        if v not in valid_statuses:
+            raise ValueError(f"Status must be one of {valid_statuses}")
+        return v
 
-@dataclass
-class Server:
-    """Сервер для мониторинга"""
-
-    id: int  # Уникальный идентификатор
-    user_id: int  # ID владельца сервера
-    name: str  # Название сервера
-    address: str  # Адрес сервера (IP или домен)
-    check_type: str  # Тип проверки (http/tcp)
-    status: str  # Статус сервера (up/down/unknown)
-    last_checked: Optional[datetime]  # Время последней проверки
-    response_time: Optional[float] = None  # Время ответа в секундах
-    error_message: Optional[str] = None  # Сообщение об ошибке
-    created_at: Optional[datetime] = None  # Дата создания
-    updated_at: Optional[datetime] = None  # Дата последнего обновления
-    services: List[Service] = None  # Список сервисов на сервере
-
-
-@dataclass
-class ServerStats:
-    """Статистика сервера"""
-
-    server_id: int  # ID сервера
-    date: datetime  # Дата статистики
+class ServerStats(BaseModel):
+    """Server statistics"""
+    server_id: int
+    date: datetime
     uptime_percentage: float
     avg_response_time: float
     total_checks: int
     successful_checks: int
-    created_at: datetime
 
+    @validator("uptime_percentage")
+    def validate_uptime(cls, v):
+        if not 0 <= v <= 100:
+            raise ValueError("Uptime percentage must be between 0 and 100")
+        return v
 
-@dataclass
-class MonitoringHistory:
+class MonitoringHistory(BaseModel):
+    """Monitoring history record"""
     id: int
     server_id: int
     timestamp: datetime
@@ -81,9 +101,8 @@ class MonitoringHistory:
     error_message: Optional[str]
     services_status: Optional[Dict[int, bool]]
 
-
-@dataclass
-class Notification:
+class Notification(BaseModel):
+    """Notification record"""
     id: int
     server_id: int
     user_id: int

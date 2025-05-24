@@ -1,101 +1,71 @@
 import asyncio
 import logging
-import sys
-from datetime import datetime
-from pathlib import Path
+import os
+from logging.handlers import RotatingFileHandler
 
 from aiogram import Bot, Dispatcher
-from aiogram.enums import ParseMode
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message
+from aiogram.fsm.storage.sqlalchemy import SQLAlchemyStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from config.config import Config
 from handlers import admin_handlers, monitoring_handlers, user_handlers
 from services.monitoring import schedule_monitoring_tasks
 
-# Setup logging
-log_dir = Path(__file__).parent / "logs"
-log_dir.mkdir(exist_ok=True)
-log_file = log_dir / f'bot_{datetime.now().strftime("%Y%m%d")}.log'
+# Ensure timezone is set to UTC
+os.environ["TZ"] = "UTC"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler(log_file), logging.StreamHandler(sys.stdout)],
-)
+# Setup logging with rotation
 logger = logging.getLogger(__name__)
-
-
-# Rate limiting middleware
-class RateLimiter:
-    def __init__(self):
-        self.rates = {}
-
-    async def __call__(self, handler, event: Message, data):
-        if not event.from_user:
-            return await handler(event, data)
-
-        user_id = event.from_user.id
-        now = datetime.now().timestamp()
-
-        if user_id in self.rates:
-            last_time = self.rates[user_id]
-            if now - last_time < 1:  # 1 second cooldown
-                await event.answer("Пожалуйста, подождите перед следующей командой.")
-                return
-
-        self.rates[user_id] = now
-        return await handler(event, data)
-
+logger.setLevel(logging.INFO)
+handler = RotatingFileHandler("logs/bot.log", maxBytes=10*1024*1024, backupCount=5)
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 async def main():
     try:
-        logger.info("Starting bot initialization")
-        config = Config()
-        logger.info("Config loaded successfully")
-
-        if not config.bot_token:
-            raise ValueError("Bot token is missing!")
-
-        logger.info(f"BOT_TOKEN: {'<hidden>' if config.bot_token else 'MISSING'}")
-        logger.info(f"ADMIN_IDS: {config.admin_ids}")
-
+        config = Config.from_env()
+        
+        # Initialize database engine for storage
+        db_url = (
+            f"postgresql+asyncpg://{config.database.user}:{config.database.password}@"
+            f"{config.database.host}:{config.database.port}/{config.database.name}"
+        )
+        engine = create_async_engine(db_url, echo=False)
+        
         # Initialize bot and dispatcher
-        bot = Bot(token=config.bot_token, parse_mode=ParseMode.HTML)
-        dp = Dispatcher(storage=MemoryStorage())
-
-        # Add rate limiting
-        dp.message.outer_middleware(RateLimiter())
-
+        bot = Bot(token=config.bot_token)
+        storage = SQLAlchemyStorage(engine=engine)
+        dp = Dispatcher(storage=storage)
+        
+        # Register handlers
+        dp.include_routers(
+            user_handlers.router,
+            admin_handlers.router,
+            monitoring_handlers.router,
+        )
+        
         # Initialize scheduler
         scheduler = AsyncIOScheduler(timezone="UTC")
-
-        # Register handlers
-        dp.include_router(user_handlers.router)
-        dp.include_router(admin_handlers.router)
-        dp.include_router(monitoring_handlers.router)
-        logger.info("Handlers registered")
-
-        # Schedule monitoring tasks
-        await schedule_monitoring_tasks(scheduler, bot)
+        await schedule_monitoring_tasks(scheduler, bot, config)
         scheduler.start()
-
-        logger.info("Starting bot")
-        await dp.start_polling(bot)
+        
+        # Start polling
+        logger.info("Starting bot polling...")
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        
     except Exception as e:
-        logger.error(f"Failed to start bot: {str(e)}", exc_info=True)
+        logger.error(f"Bot failed to start: {e}", exc_info=True)
         raise
     finally:
-        if "bot" in locals():
-            await bot.session.close()
-
+        if 'scheduler' in locals():
+            scheduler.shutdown()
+        if 'storage' in locals():
+            await storage.close()
+        if 'engine' in locals():
+            await engine.dispose()
+        logger.info("Bot stopped")
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
-    except Exception as e:
-        logger.error(f"Main loop failed: {str(e)}", exc_info=True)
-        sys.exit(1)
+    asyncio.run(main())
