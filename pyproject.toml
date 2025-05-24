@@ -23,7 +23,4 @@ module = ["aiogram.*", "ping3.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-addopts = "--cov=server_monitoring_bot --cov-report=term-missing"
+asyncio_default_fixture_loop_scope = "function"
