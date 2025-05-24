@@ -47,4 +47,11 @@ async def mock_db():
     return db
 
 @pytest.fixture
-    async def mock_state():
+async def mock_state():
+    state = AsyncMock(spec=FSMContext)
+    state.set_state = AsyncMock()
+    state.get_state = AsyncMock(return_value=None)
+    state.set_data = AsyncMock()
+    state.get_data = AsyncMock(return_value={})
+    state.clear = AsyncMock()
+    return state
