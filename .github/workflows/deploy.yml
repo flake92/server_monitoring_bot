@@ -23,14 +23,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-cov
 
       - name: Run tests
         run: |
           if [ -d "tests" ]; then
-            pytest tests/ --cov=. --cov-report=term-missing
+            echo "Running tests in tests/ directory"
+            pytest tests/ --cov=. --cov-report=term-missing --verbose --asyncio-default-fixture-loop-scope=function
           else
             echo "No tests directory found, skipping tests"
+            exit 1
           fi
 
   deploy:
@@ -158,24 +159,28 @@ jobs:
             # Проверка всех зависимостей
             echo "Checking dependencies"
             required_packages=(
-              "aiogram==3.3.0"
-              "aiogram-dialog==2.1.0"
-              "psycopg2-binary==2.9.9"
-              "aiohttp==3.9.1"
-              "ping3==4.0.3"
-              "requests==2.31.0"
-              "dnspython==2.4.2"
-              "pydantic==2.5.2"
-              "python-dotenv==1.0.0"
-              "matplotlib==3.8.2"
-              "pandas==2.1.4"
+              "aiogram>=3.0.0b5"
+              "aiogram-dialog>=2.1.0"
+              "psycopg2-binary>=2.9.9"
+              "aiohttp>=3.9.1"
+              "ping3>=4.0.3"
+              "requests>=2.31.0"
+              "dnspython>=2.4.2"
+              "pydantic>=1.10.13"
+              "pydantic-settings>=2.5.2"
+              "python-dotenv>=1.0.0"
+              "matplotlib>=3.8.2"
+              "pandas>=2.1.4"
+              "APScheduler>=3.10.4"
+              "pytz>=2023.3.post1"
+              "alembic>=1.13.1"
             )
 
             for package in "${required_packages[@]}"; do
               name=$(echo $package | cut -d= -f1)
               version=$(echo $package | cut -d= -f2)
               installed_version=$(pip show $name | grep Version | cut -d' ' -f2)
-              if [ "$installed_version" != "$version" ]; then
+              if ! echo "$installed_version" | grep -q "$version"; then
                 echo "Package $name version mismatch. Expected $version, got $installed_version"
                 exit 1
               fi
@@ -229,24 +234,13 @@ jobs:
               exit 1
             fi
 
-            # Дополнительные миграции
-            migrations=(
-              "ALTER TABLE servers ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'unknown';"
-              "ALTER TABLE servers ADD COLUMN IF NOT EXISTS last_checked TIMESTAMP;"
-              "ALTER TABLE servers ADD COLUMN IF NOT EXISTS check_interval INTEGER DEFAULT 300;"
-              "ALTER TABLE servers ADD COLUMN IF NOT EXISTS notification_enabled BOOLEAN DEFAULT true;"
-              "CREATE TABLE IF NOT EXISTS notification_cooldown (id INTEGER PRIMARY KEY, last_notification TIMESTAMP);"
-              "CREATE TABLE IF NOT EXISTS server_stats (id SERIAL PRIMARY KEY, server_id INTEGER REFERENCES servers(id), check_time TIMESTAMP, response_time FLOAT, status VARCHAR(50));"
-            )
-
-            for migration in "${migrations[@]}"; do
-              echo "Applying migration: $migration"
-              psql -U monitor_user -d server_monitoring -h localhost -p 5432 -c "$migration"
-              if [ $? -ne 0 ]; then
-                echo "Failed to apply migration"
-                exit 1
-              fi
-            done
+            # Применение миграций через Alembic
+            echo "Applying Alembic migrations"
+            alembic upgrade head
+            if [ $? -ne 0 ]; then
+              echo "Failed to apply Alembic migrations"
+              exit 1
+            fi
 
             unset PGPASSWORD
 
