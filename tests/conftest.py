@@ -47,4 +47,4 @@ async def mock_db():
     return db
 
 @pytest.fixture
-async def mock_state():
+    async def mock_state():
